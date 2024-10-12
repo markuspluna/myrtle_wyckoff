@@ -1,3 +1,6 @@
 [submodule "myrtle-wyckoff-mainnet/lib/forge-std"]
 	path = myrtle-wyckoff-mainnet/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "myrtle-wyckoff-mainnet/lib/openzeppelin-contracts"]
+	path = myrtle-wyckoff-mainnet/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
