@@ -47,6 +47,7 @@ contract DepositRegistry {
     //     bytes memory signature,
     //     address to
     // ) public {
+    // MAKE SURE TO CHECK SENDER IS HOOKSTRAMPOLINE, or ADMIN, or WITHDRAWER, nah sep func
     //     require(msg.sender == admin, "Only the admin can pull funds");
     //     // Assuming there's a function to validate the admin signature
     //     // This is a placeholder for the actual validation logic

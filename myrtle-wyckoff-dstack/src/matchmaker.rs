@@ -29,7 +29,8 @@ pub fn match_order(
     let mut remaining_qty = qty;
     let mut volume = Qty(0);
     let mut new_order_id = None;
-    let price = Price::from_u32(price32, is_bid);
+    // flip the order type to match the price with the opposite types below
+    let match_price = Price::from_u32(price32, !is_bid);
 
     if let Some(book) = manager.books.get_mut(book_id.value() as usize).unwrap() {
         let levels = if is_bid {
@@ -46,7 +47,8 @@ pub fn match_order(
             i -= 1;
             let level = levels.get(i);
 
-            if (is_bid && level.price() > price) || (!is_bid && level.price() < price) {
+            // works for both bids and asks
+            if (level.price() < match_price) {
                 break; // No more matching levels
             }
             crossed_levels.push(level.level_id());
