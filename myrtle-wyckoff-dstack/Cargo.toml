@@ -14,3 +14,7 @@ ethers = "2.0.14"
 optimized-lob = {path = "../../matching-engine-rs/optimized-lob"}
 rocket = "0.5.1"
 serde = "1.0.210"
+
+[[bin]]
+name = "myrtle-wyckoff-dstack"
+path = "src/main.rs"
