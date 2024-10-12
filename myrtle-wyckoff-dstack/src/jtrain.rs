@@ -9,8 +9,8 @@ use optimized_lob::orderbook_manager::OrderBookManager;
 use crate::warehouse::Warehouse;
 
 pub struct Jtrain {
-    warehouse: Warehouse,
-    orderbook_manager: OrderBookManager,
+    pub warehouse: Warehouse,
+    pub orderbook_manager: OrderBookManager,
 }
 
 impl Jtrain {
