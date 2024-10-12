@@ -1,0 +1,15 @@
+[package]
+name = "myrtle-wyckoff-dstack"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A matching engine implementation with Rust utilizing Aman Kumar's optimized-lob"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+optimized-lob = { path = "../../matching-engine-rs/optimized-lob" }
+ethers = "2.0.14"
+serde = "1.0.210" 
+chrono = "0.4.38"

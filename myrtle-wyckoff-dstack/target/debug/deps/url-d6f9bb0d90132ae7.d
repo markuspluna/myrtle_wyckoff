@@ -1,0 +1,11 @@
+/Users/markuspaulsonluna/Dev/myrtle_wyckoff/target/debug/deps/liburl-d6f9bb0d90132ae7.rmeta: /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/lib.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/host.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/origin.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/parser.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/path_segments.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/slicing.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/quirks.rs
+
+/Users/markuspaulsonluna/Dev/myrtle_wyckoff/target/debug/deps/url-d6f9bb0d90132ae7.d: /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/lib.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/host.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/origin.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/parser.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/path_segments.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/slicing.rs /Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/quirks.rs
+
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/lib.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/host.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/origin.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/parser.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/path_segments.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/slicing.rs:
+/Users/markuspaulsonluna/.cargo/registry/src/index.crates.io-6f17d22bba15001f/url-2.5.2/src/quirks.rs:
