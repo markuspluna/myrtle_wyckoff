@@ -11,7 +11,7 @@ Total: 8 hrs
 
 ## Markus
 
-- [ ] finish mainnet contract (1 hr)
+- [x] finish mainnet contract (1 hr)
 - [ ] create suave contract (1 hr)
 
 ## Nikita
@@ -19,3 +19,11 @@ Total: 8 hrs
 - [x] set up the server (30 min)
 - [ ] write to encrypted vol (1 hr)
 - [ ] set up dstack dockerized (1 hr)
+
+## Run instructions
+
+```shell
+cd myrtle-wyckoff-dstack
+docker build -t myrtle-wyckoff-dstack .
+docker run -p 8000:8000 myrtle-wyckoff-dstack
+```
