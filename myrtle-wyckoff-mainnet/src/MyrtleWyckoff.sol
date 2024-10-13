@@ -3,9 +3,10 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-contract DepositRegistry {
-    address public admin;
+contract MyrtleWyckoff {
+    address public admin; // Should be set to dstack container shared secret address
     uint256 public settlement_nonce;
+    mapping(uint256 => bytes32) public blob_registry;
     mapping(address => uint64[]) public deposit_registry;
     IERC20 public constant WETH =
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Mainnet WETH address
@@ -70,6 +71,27 @@ contract DepositRegistry {
         settlement_nonce++;
         // Transfer weth to the specified address
         WETH.transfer(to, amount);
+    }
+
+    // Register new blob containing encrypted inventory state
+    function register_blob(bytes memory signature, uint256 blob_nonce) public {
+        // Create a message hash that includes all relevant data
+        bytes32 messageHash = keccak256(abi.encodePacked(blob_nonce));
+
+        // Prefix the hash with the Ethereum Signed Message prefix
+        bytes32 prefixedHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+
+        require(
+            validateSignature(signature, prefixedHash, admin),
+            "Signature is not from the admin"
+        );
+        if (blob_registry[blob_nonce].length != 0) {
+            revert("Blob nonce already used");
+        }
+        // Only 1 blob per inventory state checkpoint, limits inventory size so a different implementation would be needed in prod
+        blob_registry[blob_nonce] = blobhash(0);
     }
 
     function validateSignature(
