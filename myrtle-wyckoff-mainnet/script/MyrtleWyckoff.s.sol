@@ -2,17 +2,17 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {DepositRegistry} from "../src/DepositRegistry.sol";
+import {MyrtleWyckoff} from "../src/MyrtleWyckoff.sol";
 
-contract DepositRegistryScript is Script {
-    DepositRegistry public depositRegistry;
+contract MyrtleWyckoffScript is Script {
+    MyrtleWyckoff public myrtleWyckoff;
 
     function setUp() public {}
 
     function run() public {
         vm.startBroadcast();
 
-        depositRegistry = new DepositRegistry();
+        myrtleWyckoff = new MyrtleWyckoff();
 
         vm.stopBroadcast();
     }
