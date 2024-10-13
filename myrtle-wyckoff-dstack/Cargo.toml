@@ -6,12 +6,18 @@ name = "myrtle-wyckoff-dstack"
 readme = "README.md"
 version = "0.1.0"
 
+[profile.release]
+codegen-units = 1 # Single codegen unit for maximum optimization
+lto = true # Link-time optimization for smaller, faster binaries
+opt-level = "z" # Optimize for size (can use "3" for max speed)
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 chrono = "0.4.38"
 ethers = "2.0.14"
-optimized-lob = {path = "../../matching-engine-rs/optimized-lob"}
+optimized-lob = {git = "https://github.com/markuspluna/matching-engine-rs.git"}
+# optimized-lob = {path = "../../matching-engine-rs/optimized-lob"}
 rocket = "0.5.1"
 serde = "1.0.210"
 

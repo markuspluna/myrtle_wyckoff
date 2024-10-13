@@ -1,28 +1,40 @@
-# 1. Use the official Rust image for building
-FROM rust:1.72 as builder
+# Use the official Rust 1.81 image for building the binary
+FROM rust:1.81 as builder
 
-# 2. Set the working directory inside the container
+# Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# 3. Copy the Cargo files and download dependencies (layer caching)
+# Install necessary libraries and tools
+RUN apt-get update && \
+    apt-get install -y build-essential pkg-config libssl-dev
+
+# Copy over Cargo configuration files to cache dependencies
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir src
+
+# Pre-fetch dependencies to leverage Docker caching
 RUN cargo fetch
 
-# 4. Copy the entire project and build it in release mode
+# Copy the rest of the project and build it in release mode
 COPY . .
 RUN cargo build --release
 
-# 5. Use a lightweight image for the final container
-FROM debian:buster-slim
+# Use Ubuntu 22.04 as the base image for the final container
+FROM ubuntu:22.04
 
-# 6. Set environment variables for Rocket in production mode
+# Install necessary runtime libraries
+RUN apt-get update && \
+    apt-get install -y libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set environment variables for Rocket in production mode
 ENV ROCKET_ENV=production
 
-# 7. Copy the compiled binary from the builder stage
-COPY --from=builder /usr/src/app/target/release/rocket-docker /usr/local/bin/app
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/app/target/release/myrtle-wyckoff-dstack /usr/local/bin/app
 
-# 8. Expose the port Rocket will use
+# Expose the port Rocket will use
 EXPOSE 8000
 
-# 9. Run the Rocket application
+# Run the Rocket server
 CMD ["app"]

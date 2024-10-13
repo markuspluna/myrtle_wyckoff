@@ -11,7 +11,7 @@ Total: 8 hrs
 
 ## Markus
 
-- [ ] finish mainnet contract (1 hr)
+- [x] finish mainnet contract (1 hr)
 - [ ] create suave contract (1 hr)
 
 ## Nikita
