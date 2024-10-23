@@ -2,26 +2,45 @@
 // might need a domain separator for different orderbooks but unsure
 use chrono::Utc;
 use ethers::{
+    core::k256::{ecdsa::SigningKey, SecretKey},
     types::{Address, Signature, H256, U256},
-    utils::{keccak256, to_checksum},
+    utils::{hex, keccak256, to_checksum},
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct EIP712Domain {
-    name: String,
-    version: String,
-    verifying_contract: Address,
+pub struct EIP712Domain {
+    pub name: String,
+    pub version: String,
+    pub verifying_contract: Address,
+}
+impl EIP712Domain {
+    pub fn new(name: String, verifying_contract: Address) -> Self {
+        EIP712Domain {
+            name,
+            version: "1".to_string(),
+            verifying_contract,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct FunctionCallApproval {
-    function_name: String,
-    params: Vec<String>,
-    timestamp: U256,
+pub struct FunctionCallApproval {
+    pub function_name: String,
+    pub params: Vec<String>,
+    pub timestamp: U256,
+}
+impl FunctionCallApproval {
+    pub fn new(function_name: String, params: Vec<String>, timestamp: U256) -> Self {
+        FunctionCallApproval {
+            function_name,
+            params,
+            timestamp,
+        }
+    }
 }
 
-fn hash_eip712_message(domain: &EIP712Domain, message: &FunctionCallApproval) -> H256 {
+pub fn hash_eip712_message(domain: &EIP712Domain, message: &FunctionCallApproval) -> H256 {
     let domain_separator = hash_domain(domain);
     let message_hash = hash_approval(message);
 
@@ -61,7 +80,7 @@ fn hash_approval(approval: &FunctionCallApproval) -> H256 {
     H256::from_slice(&keccak256(encoded))
 }
 
-fn verify_eip712_approval(
+pub fn verify_eip712_approval(
     domain: &EIP712Domain,
     approval: &FunctionCallApproval,
     signature: &Signature,
@@ -86,4 +105,21 @@ fn verify_eip712_approval(
     let time_difference = current_time.saturating_sub(approval.timestamp);
 
     time_difference <= U256::from(max_age)
+}
+
+// Function to sign a message with a secret key
+pub fn sign_message(
+    message: H256,
+    secret_key: &str,
+) -> Result<Signature, Box<dyn std::error::Error>> {
+    let secret_key = SecretKey::from_slice(&hex::decode(secret_key)?)?;
+    let signing_key = SigningKey::from(secret_key);
+    let (signature, recovery_id) = signing_key.sign_prehash_recoverable(message.as_ref())?;
+    let v = recovery_id.to_byte() as u64 + 27;
+    let r_bytes: [u8; 32] = signature.r().to_bytes().into();
+    let s_bytes: [u8; 32] = signature.s().to_bytes().into();
+    let r = U256::from_big_endian(&r_bytes);
+    let s = U256::from_big_endian(&s_bytes);
+
+    Ok(Signature { r, s, v })
 }

@@ -19,15 +19,19 @@ use optimized_lob::{
     order::{OidMap, OrderId},
     orderbook::OrderBook,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub struct Warehouse {
-    pub inventories: HashMap<String, (u64, u32, u8)>, // address, balance, deposit nonce, is_taker
-    pub orders: HashMap<String, HashSet<OrderId>>,    // address, order ids
-    pub books: Vec<Option<OrderBook>>,                // A mapping of book IDs to order books.
-    pub oid_map: OidMap,                              // A mapping of order IDs to order objects.
+    pub inventories: HashMap<String, (i64, i64, u32, u8)>, // address, eth_balance, usdc_balance, deposit nonce, is_taker
+    pub orders: HashMap<String, HashSet<OrderId>>,         // address, order ids
+    pub books: Vec<Option<OrderBook>>,                     // A mapping of book IDs to order books.
+    pub oid_map: OidMap, // A mapping of order IDs to order objects.
     pub deposit_contract: String,
     pub checkpoint_contract: String,
+    pub rpc_api_key: String,
 }
 
 impl Warehouse {
@@ -39,6 +43,7 @@ impl Warehouse {
             oid_map: OidMap::new(),
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
+            rpc_api_key: String::new(),
         }
     }
     pub fn load() -> Self {
@@ -50,10 +55,11 @@ impl Warehouse {
             oid_map: OidMap::new(),
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
+            rpc_api_key: String::new(),
         }
     }
 
-    pub fn store() -> Self {
+    pub fn store(&self) -> Self {
         // TODO
         Warehouse {
             inventories: HashMap::new(),
@@ -62,6 +68,7 @@ impl Warehouse {
             oid_map: OidMap::new(),
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
+            rpc_api_key: String::new(),
         }
     }
 
@@ -77,26 +84,31 @@ impl Warehouse {
         self.orders.get(&address).cloned().unwrap_or_default()
     }
 
-    pub fn get_balance(&self, address: String) -> u64 {
-        self.inventories
+    pub fn get_balance(&self, address: String) -> (i64, i64) {
+        let inventory = self
+            .inventories
             .get(&address)
             .cloned()
-            .unwrap_or((0, 0, 0))
-            .0
+            .unwrap_or((0, 0, 0, 0));
+        (inventory.0, inventory.1)
     }
 
-    pub fn set_balance(&mut self, address: String, balance: u64) {
-        let current = self.inventories.get(&address).cloned().unwrap_or((0, 0, 0));
+    pub fn set_balance(&mut self, address: String, eth_balance: i64, usdc_balance: i64) {
+        let current = self
+            .inventories
+            .get(&address)
+            .cloned()
+            .unwrap_or((0, 0, 0, 0));
         self.inventories
-            .insert(address, (balance, current.1, current.2));
+            .insert(address, (eth_balance, usdc_balance, current.2, current.3));
     }
 
     pub fn is_taker(&self, address: String) -> bool {
         self.inventories
             .get(&address)
             .cloned()
-            .unwrap_or((0, 0, 0))
-            .2
+            .unwrap_or((0, 0, 0, 0))
+            .3
             == 1
     }
 
@@ -104,13 +116,17 @@ impl Warehouse {
         self.inventories
             .get(&address)
             .cloned()
-            .unwrap_or((0, 0, 0))
-            .1
+            .unwrap_or((0, 0, 0, 0))
+            .2
     }
 
     pub fn set_deposit_nonce(&mut self, address: String, nonce: u32) {
-        let current = self.inventories.get(&address).cloned().unwrap_or((0, 0, 0));
+        let current = self
+            .inventories
+            .get(&address)
+            .cloned()
+            .unwrap_or((0, 0, 0, 0));
         self.inventories
-            .insert(address, (current.0, nonce, current.2));
+            .insert(address, (current.0, current.1, nonce, current.3));
     }
 }
