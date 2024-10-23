@@ -14,7 +14,8 @@ contract MyrtleWyckoff {
         IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC address
     address public constant HookTrampoline =
         0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
-
+    address public constant GPv2Settlement =
+        0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
     constructor() {
         admin = msg.sender;
     }
@@ -29,6 +30,7 @@ contract MyrtleWyckoff {
         uint64 eth_amount,
         uint64 usdc_amount
     ) public {
+        require(msg.sender == user, "Only the user can deposit");
         // Transfer the specified amount of WETH from the specified address
         if (eth_amount > 0) {
             WETH.transferFrom(user, address(this), eth_amount);
@@ -52,25 +54,30 @@ contract MyrtleWyckoff {
         return amounts;
     }
 
+    function get_settlement_nonce() public view returns (uint256) {
+        return settlement_nonce;
+    }
+
     // Pulls funds from the vault for a settlement order
-    // TODO: it's insecure to use the shared dstack key as admin here
-    // probably fine for a poc but an attacker could register as a dstack
-    // node and write their own program that creates signatures for malicious
-    // settlement fund pulls
     function pull_settlement_funds(
         uint64 eth_amount,
         uint64 usdc_amount,
         bytes memory signature,
-        address to //may hard code this as the cowswap settlement contract
+        address to
     ) public {
         require(
             msg.sender == HookTrampoline,
-            "Only the HookTrampoline contract can pull funds"
+            "Only the HookTrampoline contract can create a settlement approval"
         );
 
         // Create a message hash that includes all relevant data
         bytes32 messageHash = keccak256(
-            abi.encodePacked(eth_amount, usdc_amount, to, settlement_nonce)
+            abi.encodePacked(
+                eth_amount,
+                usdc_amount,
+                settlement_nonce,
+                "pull_settlement_funds"
+            )
         );
 
         // Prefix the hash with the Ethereum Signed Message prefix
@@ -87,9 +94,17 @@ contract MyrtleWyckoff {
         settlement_nonce++;
         // Transfer weth to the specified address
         if (eth_amount > 0) {
+            require(
+                WETH.allowance(to, GPv2Settlement) >= eth_amount,
+                "Insufficient taker allowance"
+            );
             WETH.transfer(to, eth_amount);
         }
         if (usdc_amount > 0) {
+            require(
+                USDC.allowance(to, GPv2Settlement) >= usdc_amount,
+                "Insufficient taker allowance"
+            );
             USDC.transfer(to, usdc_amount);
         }
     }
