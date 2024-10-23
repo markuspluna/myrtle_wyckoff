@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {MyrtleWyckoff} from "../src/MyrtleWyckoff.sol";
+import {DepositRegistry} from "../src/DepositRegistry.sol";
 
-contract MyrtleWyckoffTest is Test {
-    MyrtleWyckoff public myrtleWyckoff;
+contract DepositRegistryTest is Test {
+    DepositRegistry public depositRegistry;
 
     // function setUp() public {
     //     counter = new Counter();
