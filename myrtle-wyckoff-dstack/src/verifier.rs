@@ -4,7 +4,7 @@ use chrono::Utc;
 use ethers::{
     core::k256::{ecdsa::SigningKey, SecretKey},
     types::{Address, Signature, H256, U256},
-    utils::{hex, keccak256, to_checksum},
+    utils::{hex, keccak256},
 };
 use serde::{Deserialize, Serialize};
 

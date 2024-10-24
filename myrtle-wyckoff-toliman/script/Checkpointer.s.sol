@@ -2,17 +2,17 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {MyrtleWyckoff} from "../src/MyrtleWyckoff.sol";
+import {Checkpointer} from "../src/Checkpointer.sol";
 
-contract MyrtleWyckoffScript is Script {
-    MyrtleWyckoff public myrtleWyckoff;
+contract CheckpointerScript is Script {
+    Checkpointer public checkpointer;
 
     function setUp() public {}
 
     function run() public {
         vm.startBroadcast();
 
-        myrtleWyckoff = new MyrtleWyckoff();
+        checkpointer = new Checkpointer();
 
         vm.stopBroadcast();
     }

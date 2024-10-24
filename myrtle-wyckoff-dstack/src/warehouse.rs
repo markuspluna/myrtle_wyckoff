@@ -1,3 +1,4 @@
+// Overview: Persistent storage for the app state. Gets shoved into the encrypted volume.
 // Not actually sure how I wanna set this up yet since unfamiliar with
 // encrypted volumes.
 // Basically I think we wanna store 2 data structures in the volume.
@@ -19,10 +20,9 @@ use optimized_lob::{
     order::{OidMap, OrderId},
     orderbook::OrderBook,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
+
+use crate::cowswap::CowSwapOrder;
 
 pub struct Warehouse {
     pub inventories: HashMap<String, (i64, i64, u32, u8)>, // address, eth_balance, usdc_balance, deposit nonce, is_taker
@@ -32,6 +32,7 @@ pub struct Warehouse {
     pub deposit_contract: String,
     pub checkpoint_contract: String,
     pub rpc_api_key: String,
+    pub settlement_orders: Vec<CowSwapOrder>,
 }
 
 impl Warehouse {
@@ -44,6 +45,7 @@ impl Warehouse {
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
             rpc_api_key: String::new(),
+            settlement_orders: Vec::new(),
         }
     }
     pub fn load() -> Self {
@@ -56,6 +58,7 @@ impl Warehouse {
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
             rpc_api_key: String::new(),
+            settlement_orders: Vec::new(),
         }
     }
 
@@ -69,6 +72,7 @@ impl Warehouse {
             deposit_contract: String::new(),
             checkpoint_contract: String::new(),
             rpc_api_key: String::new(),
+            settlement_orders: Vec::new(),
         }
     }
 
@@ -128,5 +132,12 @@ impl Warehouse {
             .unwrap_or((0, 0, 0, 0));
         self.inventories
             .insert(address, (current.0, current.1, nonce, current.3));
+    }
+
+    pub fn add_settlement_order(&mut self, order: CowSwapOrder) {
+        self.settlement_orders.push(order);
+    }
+    pub fn clear_settlement_orders(&mut self) {
+        self.settlement_orders.clear();
     }
 }

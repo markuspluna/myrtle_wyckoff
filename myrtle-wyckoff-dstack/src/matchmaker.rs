@@ -2,7 +2,7 @@ extern crate optimized_lob;
 use optimized_lob::{
     order::OrderId, orderbook_manager::OrderBookManager, price::Price, quantity::Qty, utils::BookId,
 };
-
+// Overview: matching engine
 // matches an order against the current orderbook state, performing executions where necessary
 // returns a tuple of 4 values,
 // - total qty executed
@@ -10,14 +10,15 @@ use optimized_lob::{
 // - new order id if one was created
 // - vec of matched orders (if any)
 // Notes:
-// Attempts the following process:
+// * Attempts the following process:
 // 1. Receive order from user
 // 2. Check bids or asks and price levels to see what levels if any it crosses
 // 3. Check levels to get quantities to see how many get cleared
 // 4. Remove orders from all crossed levels and reduce from unfilled levels
 // 5. Add order for any remaining size
 //
-// This is the expected entrypoint for all new user trades
+// * This is the expected entrypoint for all new user trades
+// * This isn't necessarily a standard matching engine implementation, it's just simple
 pub fn match_order(
     manager: &mut OrderBookManager,
     book_id: BookId,

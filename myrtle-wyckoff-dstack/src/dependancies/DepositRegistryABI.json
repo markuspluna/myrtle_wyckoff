@@ -71,25 +71,6 @@
   },
   {
     "type": "function",
-    "name": "blob_registry",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "deposit",
     "inputs": [
       {
@@ -166,19 +147,6 @@
   },
   {
     "type": "function",
-    "name": "get_settlement_nonce",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "pull_settlement_funds",
     "inputs": [
       {
@@ -200,24 +168,6 @@
         "name": "to",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "register_blob",
-    "inputs": [
-      {
-        "name": "signature",
-        "type": "bytes",
-        "internalType": "bytes"
-      },
-      {
-        "name": "blob_nonce",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
