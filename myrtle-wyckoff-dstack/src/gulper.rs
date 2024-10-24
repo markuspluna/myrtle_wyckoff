@@ -1,4 +1,5 @@
-// this is the entrypoint for all new deposits
+// Overview:
+// Responsible for gulping new deposits from the mainnet deposit registry contract
 
 use std::{fs, sync::Arc};
 
@@ -10,16 +11,15 @@ use crate::warehouse::Warehouse;
 pub async fn gulp_deposits(warehouse: &mut Warehouse, user: String) -> [u64; 2] {
     // this should use the dstack in-TDX light client so we don't need to trust the RPC
     // but this is a demo/poc so RPC for now
-    // Connect to the Ethereum network (replace with your provider URL)
     let provider: Arc<Provider<ethers::providers::Http>> = Arc::new(
         Provider::<ethers::providers::Http>::try_from(
-            "https://mainnet.infura.io/v3/YOUR-PROJECT-ID",
+            "https://mainnet.infura.io/v3/YOUR-PROJECT-ID", // project id probably needs to be an env var
         )
         .unwrap(),
     );
 
     // Contract address and ABI
-    let contract_address = "0x...".parse::<Address>().unwrap(); // Replace with your contract address
+    let contract_address = Address::from_slice(warehouse.deposit_contract.as_bytes()); // Replace with your contract address
     let file = fs::read_to_string("./dependancies/MyrtleWyckoffABI.json").unwrap();
     let abi: Abi = serde_json::from_value(serde_json::from_str(&file).unwrap()).unwrap();
 

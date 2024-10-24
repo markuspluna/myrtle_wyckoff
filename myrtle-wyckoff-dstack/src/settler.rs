@@ -1,3 +1,6 @@
+// Overview:
+// Responsible for validating and creating settlement orders to be posted as part of the state snapshot
+
 use crate::{
     constants::{USDC_ADDRESS, WETH_ADDRESS},
     cowswap::{CowSwapHook, CowSwapOrder},
@@ -9,28 +12,20 @@ use crate::{
 };
 use chrono::Utc;
 use ethers::{
-    abi::Abi,
-    contract::Contract,
-    providers::{Provider, ProviderExt},
-    types::{Address, Signature, U256},
-    utils::{keccak256, to_checksum},
-};
-use ethers::{
     contract::abigen,
-    core::{k256::SecretKey, types::H256},
+    providers::Provider,
+    types::{Address, Signature, U256},
 };
-use std::{fs, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
-// store settlement orders to be posted as part of the state snapshot
-// TODO: this should make use of hooks in order to properly distribute
-// the surplus to the taker - probably use cowshed https://github.com/cowdao-grants/cow-shed/tree/main
-// TODO: we probably want to gossip these or emit them as events somehow in prod so the api endpoint isn't a dependancy
-// NOTE: the hard part of this is the signaturex isn't tied to the order, so it needs to be directly sent to cowswap rather than being gossiped as part of the
-// state snapshot - this results in settlement collisions since the "snapshotter" doesn't know about the settlements submitted by other snapshotters
-// Final Note: Actually, we will post the order as part of the state snapshot, we're going to rely on cowswaps social layer to detect and punish bad behavior.
-// This is probably not scalable in prod, but it's good enough for now, normally a state lock system would allow us to use encrypted published orders to prevent
-// Misuse of approval hooks (only the taker would be able to decrypt and send the order for submission)
-// Note: we're also relying on cowswap's social layer to ensure that the filler does not submit the hook unless the trade is going to fill
+// Create settlement orders to be posted as part of the state snapshot
+// TODO: this should probably use cowshed https://github.com/cowdao-grants/cow-shed/tree/main instead of transferring funds to the taker
+// Note: We're relying heavily on cowswaps social layer to enforce good behavior here
+// * pull_settlment_funds() approval signatures are made public as part of the gossiped pre-hook. A malicious taker&solver could abuse this to steal funds.
+//   This is probably not scalable in prod, but it's good enough for now, normally a state lock system would allow us to use encrypted published orders to prevent
+//   misuse of approval hooks (only the taker would be able to decrypt and send the order for submission)
+// * A malicious solver could submit a batch where the swap will revert but not the pre-hook, leading to lost funds
+// Note: A malicious taker could submit settlement orders that will never fill but will cause state updates. This is solved with a state lock system.
 pub async fn create_settlement_order(
     warehouse: &Warehouse,
     user: String,
@@ -83,19 +78,19 @@ pub async fn create_settlement_order(
         .unwrap(),
     );
     abigen!(
-        MyrtleWyckoffContract,
-        "./src/dependancies/MyrtleWyckoffABI.json"
+        DepositRegistryContract,
+        "./src/dependancies/DepositRegistryABI.json"
     );
-    let myrtle_wyckoff_contract = MyrtleWyckoffContract::new(contract_address, provider);
-    let settlement_nonce: U256 = myrtle_wyckoff_contract
-        .get_settlement_nonce()
+    let deposit_registry_contract = DepositRegistryContract::new(contract_address, provider);
+    let settlement_nonce: U256 = deposit_registry_contract
+        .settlement_nonce()
         .call()
         .await
         .unwrap();
     // Create EIP712Domain
     let domain = EIP712Domain::new(
         "MyrtleWyckoff".to_string(),
-        myrtle_wyckoff_contract.address(), // TODO: replace with contract address
+        deposit_registry_contract.address(),
     );
 
     // Create FunctionCallApproval
@@ -112,13 +107,18 @@ pub async fn create_settlement_order(
     let hook_signature = sign_message(hash_eip712_message(&domain, &approval), secret_key).unwrap();
 
     // Get calldata
-    let pre_hook_calldata = myrtle_wyckoff_contract
-        .pull_settlement_funds(eth_amount, usdc_amount, hook_signature.to_vec().into())
+    let pre_hook_calldata = deposit_registry_contract
+        .pull_settlement_funds(
+            eth_amount,
+            usdc_amount,
+            hook_signature.to_vec().into(),
+            Address::from_str(&user).unwrap(),
+        )
         .calldata()
         .unwrap();
 
     let pre_hook = CowSwapHook::new(
-        myrtle_wyckoff_contract.address(),
+        deposit_registry_contract.address(),
         pre_hook_calldata,
         "100".to_string(), // TODO: figure out what gas cost is
     );
@@ -132,7 +132,7 @@ pub async fn create_settlement_order(
     CowSwapOrder::new(
         sell_token.to_string(),
         buy_token.to_string(),
-        myrtle_wyckoff_contract.address().to_string(), // vault will receive the bought tokens
+        deposit_registry_contract.address().to_string(), // vault will receive the bought tokens
         sell_amount,
         buy_amount,
         (Utc::now().timestamp() + 300) as u64,

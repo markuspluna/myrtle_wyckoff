@@ -16,8 +16,8 @@ impl CowSwapHook {
     }
     pub fn to_app_data(&self) -> String {
         format!(
-            "{{\"version\":\"1.3.0\",\"metadata\":{{\"hooks\":{{\"pre\":[{:?}], \"post\":[]}}}}}}",
-            self
+            "{{\"version\":\"1.3.0\",\"metadata\":{{\"hooks\":{{\"pre\":[{{\"target\": \"{}\", \"call_data\": \"{}\", \"gas_limit\": \"{}\"}}], \"post\":[]}}}}}}",
+            self.target, self.call_data, self.gas_limit
         )
     }
 }
