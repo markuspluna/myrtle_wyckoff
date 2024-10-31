@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
+import {EfficientHashLib} from "../lib/solady/src/utils/EfficientHashLib.sol";
+import {SignatureCheckerLib} from "../lib/solady/src/utils/SignatureCheckerLib.sol";
 
 contract Checkpointer {
     address public admin; // Should be set to dstack app shared secret address
     uint256 public inventory_checkpoint_nonce;
     event SettlementOrders(string[] settlement_orders);
+    /// @dev `keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")`.
+    bytes32 internal constant _DOMAIN_TYPEHASH =
+        0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f; //TODO: update with correct domain typehash
 
     // Vec of AES encoded inventories structured as (user: Address, eth_balance: i128, usdc_balance: i128, deposit nonce: u32, is_taker: u8)
     // In prod this should store multiple checkpoints and overwrite oldest with newest
@@ -19,32 +24,40 @@ contract Checkpointer {
         admin = new_admin;
     }
 
+    struct Checkpoint {
+        uint256 nonce;
+        uint8[] inventory_state;
+        string[] settlement_orders;
+    }
+
     // Register new blob containing encrypted inventory state
     function checkpoint(
         bytes calldata signature,
-        uint256 nonce,
-        uint8[] calldata inventory_state,
-        string[] calldata settlement_orders
+        Checkpoint calldata _checkpoint
     ) external {
-        // Create a message hash that includes all relevant data
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(nonce, inventory_state)
-        );
-
-        // Prefix the hash with the Ethereum Signed Message prefix
-        bytes32 prefixedHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        require(
+            _checkpoint.nonce == inventory_checkpoint_nonce,
+            "Nonce mismatch"
         );
 
         require(
-            validateSignature(signature, prefixedHash, admin),
-            "Signature is not from the admin"
+            SignatureCheckerLib.isValidSignatureNow(
+                admin,
+                EfficientHashLib.hash(
+                    abi.encodePacked(
+                        "\x19\x01",
+                        _DOMAIN_TYPEHASH,
+                        EfficientHashLib.hash(abi.encode(_checkpoint))
+                    )
+                ),
+                signature
+            ),
+            "Invalid signature"
         );
-        require(nonce == inventory_checkpoint_nonce, "Nonce mismatch");
         inventory_checkpoint_nonce++;
-        inventory_checkpoint = inventory_state;
+        inventory_checkpoint = _checkpoint.inventory_state;
 
-        emit SettlementOrders(settlement_orders);
+        emit SettlementOrders(_checkpoint.settlement_orders);
     }
 
     function validateSignature(
