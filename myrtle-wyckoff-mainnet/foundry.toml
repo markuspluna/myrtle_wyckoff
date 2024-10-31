@@ -4,6 +4,6 @@ out = "out"
 libs = ["lib"]
 
 [dependencies]
-"@openzeppelin-contracts" = "5.0.2"
+
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
