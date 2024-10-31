@@ -1,10 +1,12 @@
+pub mod artifacts;
 pub mod constants;
 pub mod cowswap;
+pub mod domains;
 pub mod gulper;
 pub mod jtrain;
 pub mod matchmaker;
 pub mod orderhere;
 pub mod settler;
 pub mod snapshotter;
-pub mod verifier;
+pub mod structs;
 pub mod warehouse;

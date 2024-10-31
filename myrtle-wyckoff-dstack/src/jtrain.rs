@@ -4,22 +4,75 @@
 // remain running until the next checkpoint is ready, at which point it should save the new state and exit.
 // not entirely sure how to implement.
 
+use alloy::{
+    network::Ethereum,
+    providers::{ProviderBuilder, RootProvider},
+    rpc::client::ClientBuilder,
+    transports::http::{reqwest::Url, Client, Http},
+};
 use optimized_lob::orderbook_manager::OrderBookManager;
+use std::sync::Arc;
 
 use crate::warehouse::Warehouse;
 
 pub struct Jtrain {
-    pub warehouse: Warehouse,
-    pub orderbook_manager: OrderBookManager,
+    pub warehouse: Warehouse,                //TODO: make this thread safe
+    pub orderbook_manager: OrderBookManager, //TODO: make this thread safe
+    pub provider: Arc<
+        alloy::providers::fillers::FillProvider<
+            alloy::providers::fillers::JoinFill<
+                alloy::providers::Identity,
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::fillers::GasFiller,
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::fillers::BlobGasFiller,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::NonceFiller,
+                            alloy::providers::fillers::ChainIdFiller,
+                        >,
+                    >,
+                >,
+            >,
+            RootProvider<Http<Client>>,
+            Http<Client>,
+            Ethereum,
+        >,
+    >,
 }
 
 impl Jtrain {
-    pub fn new() -> Self {
+    pub fn new(http: Url) -> Self {
         let warehouse = Warehouse::load();
         let orderbook_manager = OrderBookManager::new();
+        let client = ClientBuilder::default().http(http); //TODO: revisit this when testing
+        let provider: Arc<
+            alloy::providers::fillers::FillProvider<
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::Identity,
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::fillers::GasFiller,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::BlobGasFiller,
+                            alloy::providers::fillers::JoinFill<
+                                alloy::providers::fillers::NonceFiller,
+                                alloy::providers::fillers::ChainIdFiller,
+                            >,
+                        >,
+                    >,
+                >,
+                RootProvider<Http<Client>>,
+                Http<Client>,
+                Ethereum,
+            >,
+        > = Arc::new(
+            ProviderBuilder::new()
+                .with_recommended_fillers()
+                .on_client(client),
+        );
         Self {
             warehouse,
             orderbook_manager,
+            provider,
         }
     }
 }

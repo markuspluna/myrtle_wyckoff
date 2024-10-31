@@ -15,13 +15,17 @@ opt-level = "z" # Optimize for size (can use "3" for max speed)
 
 [dependencies]
 chrono = "0.4.38"
-ethers = "2.0.14"
+alloy = { version = "0.5", features = ["full"] }
 optimized-lob = {git = "https://github.com/markuspluna/matching-engine-rs.git"}
 # optimized-lob = {path = "../../matching-engine-rs/optimized-lob"}
 rocket = "0.5.1"
 serde = "1.0.210"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0.109"
+rand = "0.8.5"
+aes = "0.8.4"
+aes-gcm = { version = "0.10.3", features = ["heapless"] }
+tracing = "0.1.40"
 
 [[bin]]
 name = "myrtle-wyckoff-dstack"

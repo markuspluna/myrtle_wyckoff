@@ -1,37 +1,40 @@
 extern crate optimized_lob;
+use alloy::primitives::U256;
 use optimized_lob::{
     order::OrderId, orderbook_manager::OrderBookManager, price::Price, quantity::Qty, utils::BookId,
 };
-// Overview: matching engine
-// matches an order against the current orderbook state, performing executions where necessary
-// returns a tuple of 4 values,
-// - total qty executed
-// - total volume of matches (this is the revenue for an ask and the cost for a bid)
-// - new order id if one was created
-// - vec of matched orders (if any)
-// Notes:
-// * Attempts the following process:
-// 1. Receive order from user
-// 2. Check bids or asks and price levels to see what levels if any it crosses
-// 3. Check levels to get quantities to see how many get cleared
-// 4. Remove orders from all crossed levels and reduce from unfilled levels
-// 5. Add order for any remaining size
-//
-// * This is the expected entrypoint for all new user trades
-// * This isn't necessarily a standard matching engine implementation, it's just simple
+/// Overview: matching engine
+/// Matches an order against the current orderbook state, performing executions where necessary.
+///
+/// Returns a tuple of 4 values:
+/// - total qty executed
+/// - total volume of matches (this is the revenue for an ask and the cost for a bid)
+/// - new order id if one was created
+/// - vec of matched orders (if any)
+///
+/// Notes:
+/// * Attempts the following process:
+///   1. Receive order from user
+///   2. Check bids or asks and price levels to see what levels if any it crosses
+///   3. Check levels to get quantities to see how many get cleared
+///   4. Remove orders from all crossed levels and reduce from unfilled levels
+///   5. Add order for any remaining size
+///
+/// * This is the expected entrypoint for all new user trades
+/// * This isn't necessarily a standard matching engine implementation, it's just simple
 pub fn match_order(
     manager: &mut OrderBookManager,
     book_id: BookId,
-    price32: u32,
+    price256: U256,
     qty: Qty,
     is_bid: bool,
 ) -> (Qty, Qty, Option<OrderId>, Vec<OrderId>) {
     let mut matched_orders = Vec::new();
     let mut remaining_qty = qty;
-    let mut volume = Qty(0);
+    let mut volume = Qty(U256::ZERO);
     let mut new_order_id = None;
     // flip the order type to match the price with the opposite types below
-    let match_price = Price::from_u32(price32, !is_bid);
+    let match_price = Price::from_u256(price256, !is_bid);
 
     if let Some(book) = manager.books.get_mut(book_id.value() as usize).unwrap() {
         let levels = if is_bid {
@@ -49,7 +52,7 @@ pub fn match_order(
             let level = levels.get(i);
 
             // works for both bids and asks
-            if (level.price() < match_price) {
+            if level.price() < match_price {
                 break; // No more matching levels
             }
             crossed_levels.push(level.level_id());
@@ -60,7 +63,7 @@ pub fn match_order(
         for level_id in crossed_levels.iter() {
             let level = level_pool.get(*level_id).unwrap();
             let level_size = level.size();
-            let level_price = level.price().absolute() as u32;
+            let level_price = level.price().absolute();
             let order_iter = level_orders.get(level_id).unwrap().iter();
 
             match level_size.cmp(&remaining_qty) {
@@ -81,7 +84,7 @@ pub fn match_order(
                         if old_order.qty() < remaining_qty {
                             remaining_qty -= old_order.qty();
                         } else {
-                            remaining_qty = Qty(0);
+                            remaining_qty = Qty(U256::ZERO);
                             break;
                         }
                     }
@@ -91,7 +94,7 @@ pub fn match_order(
                         manager.execute_order(*order, remaining_qty);
                         matched_orders.push(*order);
                     }
-                    remaining_qty = Qty(0);
+                    remaining_qty = Qty(U256::ZERO);
                     volume += Qty(level_size.value() * level_price);
                     break;
                 }
@@ -99,9 +102,9 @@ pub fn match_order(
         }
     }
 
-    if remaining_qty.gt(&Qty(0)) {
+    if remaining_qty.gt(&Qty(U256::ZERO)) {
         let order_id = manager.oid_map.next_id();
-        manager.add_order(order_id, book_id, remaining_qty, price32, is_bid);
+        manager.add_order(order_id, book_id, remaining_qty, price256, is_bid);
         new_order_id = Some(order_id);
     }
     (

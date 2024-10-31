@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{env, str::FromStr, sync::Arc};
 
+use alloy::transports::http::reqwest::Url;
 use myrtle_wyckoff_dstack::jtrain::Jtrain;
 use rocket::{
     delete, get, launch, post, put, response::Redirect, routes, tokio::sync::RwLock, State,
@@ -70,7 +71,7 @@ async fn take_snapshot(state: &State<SharedState>) -> String {
 #[launch]
 fn rocket() -> _ {
     let initial_state = AppState {
-        jtrain: Jtrain::new(),
+        jtrain: Jtrain::new(Url::from_str(&env::var("RPC_URL").unwrap().to_string()).unwrap()),
     };
     let shared_state = Arc::new(RwLock::new(initial_state));
 

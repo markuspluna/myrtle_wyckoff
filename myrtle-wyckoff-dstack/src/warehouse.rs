@@ -16,6 +16,7 @@
 // Both of these probably need some caching mechanism since we don't
 // want to constantly encrypt and decrypt, but again unsure on the volume side
 
+use alloy::primitives::{Address, I256};
 use optimized_lob::{
     order::{OidMap, OrderId},
     orderbook::OrderBook,
@@ -24,11 +25,60 @@ use std::collections::{HashMap, HashSet};
 
 use crate::cowswap::CowSwapOrder;
 
+#[derive(Clone)]
+pub struct Inventory {
+    pub address: Address,
+    pub eth_balance: I256,
+    pub usdc_balance: I256,
+    pub deposit_nonce: u32,
+    pub is_taker: bool,
+}
+impl Inventory {
+    pub fn new(
+        address: Address,
+        eth_balance: I256,
+        usdc_balance: I256,
+        deposit_nonce: u32,
+        is_taker: bool,
+    ) -> Self {
+        Inventory {
+            address,
+            eth_balance,
+            usdc_balance,
+            deposit_nonce,
+            is_taker,
+        }
+    }
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buffer: Vec<u8> = Vec::new();
+
+        buffer.extend(&self.address.0);
+        buffer.extend(&self.eth_balance.to_le_bytes::<32>());
+        buffer.extend(&self.usdc_balance.to_le_bytes::<32>());
+        buffer.extend(self.deposit_nonce.to_le_bytes());
+        buffer.extend((self.is_taker as u8).to_le_bytes());
+
+        buffer.resize(89, 0); // Pad with zeros to reach max possible size Address (20 bytes) + eth_balance (32 bytes) + usdc_balance (32 bytes) + deposit_nonce (4 bytes) + is_taker (1 byte)
+        buffer
+    }
+}
+impl Default for Inventory {
+    fn default() -> Self {
+        Inventory::new(
+            Address::default(),
+            I256::default(),
+            I256::default(),
+            0,
+            false,
+        )
+    }
+}
+
 pub struct Warehouse {
-    pub inventories: HashMap<String, (i64, i64, u32, u8)>, // address, eth_balance, usdc_balance, deposit nonce, is_taker
-    pub orders: HashMap<String, HashSet<OrderId>>,         // address, order ids
-    pub books: Vec<Option<OrderBook>>,                     // A mapping of book IDs to order books.
-    pub oid_map: OidMap, // A mapping of order IDs to order objects.
+    pub inventories: HashMap<Address, Inventory>, // User inventories
+    pub orders: HashMap<Address, HashSet<OrderId>>, // address, order ids
+    pub books: Vec<Option<OrderBook>>,            // A mapping of book IDs to order books.
+    pub oid_map: OidMap,                          // A mapping of order IDs to order objects.
     pub deposit_contract: String,
     pub checkpoint_contract: String,
     pub rpc_api_key: String,
@@ -76,62 +126,16 @@ impl Warehouse {
         }
     }
 
-    pub fn add_order(&mut self, address: String, order_id: OrderId) {
+    pub fn add_order(&mut self, address: Address, order_id: OrderId) {
         self.orders.entry(address).or_default().insert(order_id);
     }
 
-    pub fn remove_order(&mut self, address: String, order_id: OrderId) {
+    pub fn remove_order(&mut self, address: Address, order_id: OrderId) {
         self.orders.entry(address).or_default().remove(&order_id);
     }
 
-    pub fn get_orders(&self, address: String) -> HashSet<OrderId> {
+    pub fn get_orders(&self, address: Address) -> HashSet<OrderId> {
         self.orders.get(&address).cloned().unwrap_or_default()
-    }
-
-    pub fn get_balance(&self, address: String) -> (i64, i64) {
-        let inventory = self
-            .inventories
-            .get(&address)
-            .cloned()
-            .unwrap_or((0, 0, 0, 0));
-        (inventory.0, inventory.1)
-    }
-
-    pub fn set_balance(&mut self, address: String, eth_balance: i64, usdc_balance: i64) {
-        let current = self
-            .inventories
-            .get(&address)
-            .cloned()
-            .unwrap_or((0, 0, 0, 0));
-        self.inventories
-            .insert(address, (eth_balance, usdc_balance, current.2, current.3));
-    }
-
-    pub fn is_taker(&self, address: String) -> bool {
-        self.inventories
-            .get(&address)
-            .cloned()
-            .unwrap_or((0, 0, 0, 0))
-            .3
-            == 1
-    }
-
-    pub fn get_deposit_nonce(&self, address: String) -> u32 {
-        self.inventories
-            .get(&address)
-            .cloned()
-            .unwrap_or((0, 0, 0, 0))
-            .2
-    }
-
-    pub fn set_deposit_nonce(&mut self, address: String, nonce: u32) {
-        let current = self
-            .inventories
-            .get(&address)
-            .cloned()
-            .unwrap_or((0, 0, 0, 0));
-        self.inventories
-            .insert(address, (current.0, current.1, nonce, current.3));
     }
 
     pub fn add_settlement_order(&mut self, order: CowSwapOrder) {
@@ -139,5 +143,12 @@ impl Warehouse {
     }
     pub fn clear_settlement_orders(&mut self) {
         self.settlement_orders.clear();
+    }
+
+    pub fn is_taker(&self, address: Address) -> bool {
+        match self.inventories.get(&address) {
+            Some(inventory) => inventory.is_taker,
+            None => false,
+        }
     }
 }
