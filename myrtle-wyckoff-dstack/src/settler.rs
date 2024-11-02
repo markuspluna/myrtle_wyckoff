@@ -9,7 +9,7 @@ use crate::{
 };
 use alloy::{
     network::Ethereum,
-    primitives::{Address, U256},
+    primitives::Address,
     providers::{fillers, Identity, RootProvider},
     signers::{local::PrivateKeySigner, Signature, Signer},
     sol_types::SolStruct,
@@ -64,13 +64,15 @@ pub async fn create_settlement_order(
     }
 
     if order.isBid
-        && (taker_inventory.usdc_balance.is_negative()
-            || order.clone().usdcAmount > taker_inventory.usdc_balance.into_raw())
+        && taker_inventory
+            .net_usdc()
+            .lt(&optimized_lob::quantity::Qty(order.clone().usdcAmount))
     {
         panic!("user does not have enough usdc");
     } else if !order.clone().isBid
-        && (taker_inventory.eth_balance.is_negative()
-            || order.clone().ethAmount > taker_inventory.eth_balance.into_raw())
+        && taker_inventory
+            .net_eth()
+            .lt(&optimized_lob::quantity::Qty(order.clone().ethAmount))
     {
         panic!("user does not have enough eth");
     }
@@ -84,11 +86,6 @@ pub async fn create_settlement_order(
     let hook_signature = signer.sign_hash(&order_hash).await.unwrap();
 
     // Get calldata
-    let (eth_amount_arg, usdc_amount_arg) = if order.isBid {
-        (U256::ZERO, order.usdcAmount)
-    } else {
-        (order.ethAmount, U256::ZERO)
-    };
     let k256_sig = hook_signature.to_k256().unwrap();
     let signature_bytes = k256_sig.to_bytes().to_vec();
     let pre_hook_calldata = deposit_registry_contract

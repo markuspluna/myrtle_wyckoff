@@ -94,5 +94,8 @@ pub async fn snapshot(
         )
         .send()
         .await
+        .unwrap()
+        .get_receipt()
+        .await
         .unwrap();
 }

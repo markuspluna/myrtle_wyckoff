@@ -30,7 +30,7 @@ fn health() -> &'static str {
 #[get("/state")]
 async fn state(state: &State<SharedState>) -> String {
     let read_lock = state.read().await;
-    format!("{:?}", read_lock.jtrain.warehouse.books.len())
+    format!("{:?}", read_lock.jtrain.orderbook_manager.books.len())
 }
 
 #[post("/create-settlement-order")]

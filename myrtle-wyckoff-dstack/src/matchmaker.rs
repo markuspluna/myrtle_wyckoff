@@ -10,7 +10,8 @@ use optimized_lob::{
 /// - total qty executed
 /// - total volume of matches (this is the revenue for an ask and the cost for a bid)
 /// - new order id if one was created
-/// - vec of matched orders (if any)
+/// - vec of filled order tuples (oid,price) (if any) - we do not include qty here to remove additional read requirements
+/// - partially filled order tuple (oid,price) (if any)
 ///
 /// Notes:
 /// * Attempts the following process:
@@ -28,8 +29,15 @@ pub fn match_order(
     price256: U256,
     qty: Qty,
     is_bid: bool,
-) -> (Qty, Qty, Option<OrderId>, Vec<OrderId>) {
-    let mut matched_orders = Vec::new();
+) -> (
+    Qty,
+    Qty,
+    Option<OrderId>,
+    Vec<(OrderId, Price)>,
+    Option<(OrderId, Price)>,
+) {
+    let mut filled_orders: Vec<(OrderId, Price)> = Vec::new();
+    let mut partially_filled_order_id: Option<(OrderId, Price)> = None;
     let mut remaining_qty = qty;
     let mut volume = Qty(U256::ZERO);
     let mut new_order_id = None;
@@ -70,7 +78,7 @@ pub fn match_order(
                 std::cmp::Ordering::Less => {
                     for order in order_iter {
                         manager.execute_order(*order, remaining_qty);
-                        matched_orders.push(*order);
+                        filled_orders.push((*order, level.price()));
                     }
                     remaining_qty -= level_size;
                     volume += Qty(level_size.value() * level_price);
@@ -80,19 +88,28 @@ pub fn match_order(
                     for order in order_iter {
                         let old_order = manager.oid_map.get(*order).unwrap().clone();
                         manager.execute_order(*order, remaining_qty);
-                        matched_orders.push(*order);
-                        if old_order.qty() < remaining_qty {
-                            remaining_qty -= old_order.qty();
-                        } else {
-                            remaining_qty = Qty(U256::ZERO);
-                            break;
+                        match old_order.qty().cmp(&remaining_qty) {
+                            std::cmp::Ordering::Less => {
+                                remaining_qty -= old_order.qty();
+                                filled_orders.push((*order, level.price()));
+                            }
+                            std::cmp::Ordering::Equal => {
+                                filled_orders.push((*order, level.price()));
+                                remaining_qty = Qty(U256::ZERO);
+                                break;
+                            }
+                            std::cmp::Ordering::Greater => {
+                                partially_filled_order_id = Some((*order, level.price()));
+                                remaining_qty = Qty(U256::ZERO);
+                                break;
+                            }
                         }
                     }
                 }
                 std::cmp::Ordering::Equal => {
                     for order in order_iter {
                         manager.execute_order(*order, remaining_qty);
-                        matched_orders.push(*order);
+                        filled_orders.push((*order, level.price()));
                     }
                     remaining_qty = Qty(U256::ZERO);
                     volume += Qty(level_size.value() * level_price);
@@ -111,6 +128,7 @@ pub fn match_order(
         volume,
         Qty(qty.value() - remaining_qty.value()),
         new_order_id,
-        matched_orders,
+        filled_orders,
+        partially_filled_order_id,
     )
 }

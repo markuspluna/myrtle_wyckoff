@@ -1,6 +1,4 @@
-use alloy::{primitives::Address, sol, sol_types::eip712_domain};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use alloy::sol;
 
 sol! {
     struct Checkpoint {

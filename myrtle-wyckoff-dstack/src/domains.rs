@@ -1,9 +1,7 @@
 // EIP-712 implementation
 // might need a domain separator for different orderbooks but unsure
 
-use alloy::{primitives::Address, sol, sol_types::eip712_domain};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use alloy::{primitives::Address, sol_types::eip712_domain};
 
 // sol! {
 //     struct Checkpoint {

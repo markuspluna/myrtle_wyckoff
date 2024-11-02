@@ -5,10 +5,12 @@ use std::sync::Arc;
 
 use alloy::{
     network::Ethereum,
-    primitives::{Address, I256, U256},
+    primitives::{Address, U256},
     providers::{fillers, Identity, RootProvider},
     transports::http::{Client, Http},
 };
+use core::ops::AddAssign as AddAssignTrait;
+use optimized_lob::quantity::Qty;
 
 use crate::{
     artifacts::IDepositRegistry,
@@ -65,10 +67,13 @@ pub async fn gulp_deposits(
         new_deposits[1] += deposit[1];
     }
     inventory.deposit_nonce += 1;
-    let new_eth: I256 = I256::from_raw(new_deposits[0].clone());
-    let new_usdc: I256 = I256::from_raw(new_deposits[1].clone());
-    inventory.eth_balance += new_eth;
-    inventory.usdc_balance += new_usdc;
+
+    inventory
+        .eth_balance
+        .add_assign(Qty(new_deposits[0].clone()));
+    inventory
+        .usdc_balance
+        .add_assign(Qty(new_deposits[1].clone()));
 
     warehouse.store(); // maybe don't store here?
     new_deposits
