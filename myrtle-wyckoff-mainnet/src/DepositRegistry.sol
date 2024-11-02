@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "../lib/solady/src/tokens/ERC20.sol";
+import {EfficientHashLib} from "../lib/solady/src/utils/EfficientHashLib.sol";
+import {SignatureCheckerLib} from "../lib/solady/src/utils/SignatureCheckerLib.sol";
 
 contract DepositRegistry {
     address public admin; // Should be set to dstack container shared secret address
     uint256 public settlement_nonce;
-    mapping(address => uint64[2][]) public deposit_registry; // [eth_amount, usdc_amount]
-    IERC20 public constant WETH =
-        IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Mainnet WETH address
+    mapping(address => uint256[2][]) public deposit_registry; // [eth_amount, usdc_amount]
+    ERC20 public constant WETH =
+        ERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Mainnet WETH address
     address public constant HookTrampoline =
         0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
-    IERC20 public constant USDC =
-        IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC address
+    ERC20 public constant USDC =
+        ERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC address
     address public constant GPv2Settlement =
         0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
+    /// @dev `keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")`.
+    bytes32 internal constant _DOMAIN_TYPEHASH =
+        0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f; //TODO: update with correct domain typehash
     constructor() {
         admin = msg.sender;
     }
@@ -26,8 +31,8 @@ contract DepositRegistry {
 
     function deposit(
         address user,
-        uint64 eth_amount,
-        uint64 usdc_amount
+        uint256 eth_amount,
+        uint256 usdc_amount
     ) external {
         require(msg.sender == user, "Only the user can deposit"); // Transfer the specified amount of WETH from the specified address
         if (eth_amount > 0) {
@@ -40,91 +45,89 @@ contract DepositRegistry {
     }
 
     function get_deposits(
-        uint128 _nonce,
+        uint32 _nonce,
         address user
-    ) external view returns (uint64[2][] memory) {
-        uint64[2][] memory deposits = deposit_registry[user];
-        uint64[2][] memory amounts = new uint64[2][](deposits.length - _nonce);
+    ) external view returns (uint256[2][] memory) {
+        uint256[2][] memory deposits = deposit_registry[user];
+        uint256[2][] memory amounts = new uint256[2][](
+            deposits.length - _nonce
+        );
         // iterates over every deposit after the nonce - getting every new deposit
-        for (uint128 i = _nonce + 1; i < deposits.length; i++) {
+        for (uint32 i = _nonce + 1; i < deposits.length; i++) {
             amounts[i - _nonce] = deposits[i];
         }
         return amounts;
     }
 
-    // Pulls funds from the vault for a settlement order
+    /// @notice Represents a settlement order with amounts and direction
+    /// @param ethAmount The amount of ETH in the order
+    /// @param usdcAmount The amount of USDC in the order
+    /// @param isBid True if this is a bid order, false if ask
+    /// @param nonce The settlement nonce for replay protection
+    struct Order {
+        uint256 ethAmount;
+        uint256 usdcAmount;
+        bool isBid;
+        uint256 nonce;
+    }
+
+    // Approves a pull of funds for a settlement order
     function pull_settlement_funds(
-        uint64 eth_amount,
-        uint64 usdc_amount,
-        bytes memory signature,
-        address to
+        Order calldata settlement_order,
+        bytes calldata signature
     ) external {
+        // Only the HookTrampoline contract can pull funds
         require(
             msg.sender == HookTrampoline,
             "Only the HookTrampoline contract can pull funds"
         );
-
-        // Create a message hash that includes all relevant data
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                eth_amount,
-                usdc_amount,
-                settlement_nonce,
-                "pull_settlement_funds"
-            )
-        );
-
-        // Prefix the hash with the Ethereum Signed Message prefix
-        bytes32 prefixedHash = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-        );
-
+        // Nonce must match the current nonce
+        require(settlement_order.nonce == settlement_nonce, "Nonce mismatch");
+        // Signature must be from the admin (dstack app shared secret)
         require(
-            validateSignature(signature, prefixedHash, admin),
-            "Signature is not from the admin"
+            SignatureCheckerLib.isValidSignatureNowCalldata(
+                admin,
+                EfficientHashLib.hash(
+                    abi.encodePacked(
+                        "\x19\x01",
+                        _DOMAIN_TYPEHASH,
+                        EfficientHashLib.hash(abi.encode(settlement_order))
+                    )
+                ),
+                signature
+            ),
+            "Invalid signature"
         );
 
         // Increment nonce for replay protection
         settlement_nonce++;
-        // Transfer weth to the specified address
-        if (eth_amount > 0) {
-            require(
-                WETH.allowance(to, GPv2Settlement) >= eth_amount,
-                "Insufficient taker allowance"
-            );
-            WETH.transfer(to, eth_amount);
-        }
-        if (usdc_amount > 0) {
-            require(
-                USDC.allowance(to, GPv2Settlement) >= usdc_amount,
-                "Insufficient taker allowance"
-            );
-            USDC.transfer(to, usdc_amount);
+        // Approve the GPv2Settlement contract to pull the specified amount of WETH and USDC
+        if (settlement_order.isBid) {
+            WETH.approve(GPv2Settlement, settlement_order.ethAmount);
+        } else {
+            USDC.approve(GPv2Settlement, settlement_order.usdcAmount);
         }
     }
 
-    function validateSignature(
-        bytes memory signature,
-        bytes32 messageHash,
-        address expectedSigner
-    ) internal pure returns (bool) {
-        require(signature.length == 65, "Invalid signature length");
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-
-        assembly {
-            r := mload(add(signature, 32))
-            s := mload(add(signature, 64))
-            v := byte(0, mload(add(signature, 96)))
+    // EIP-1271 signature validation
+    function isValidSignature(
+        bytes32 _hash,
+        bytes memory _signature
+    ) external view returns (bytes4) {
+        // Validate signature is from admin
+        bool isValid = SignatureCheckerLib.isValidSignatureNow(
+            admin,
+            EfficientHashLib.hash(
+                abi.encodePacked("\x19\x01", _DOMAIN_TYPEHASH, _hash)
+            ),
+            _signature
+        );
+        if (isValid) {
+            // Return EIP-1271 magic value if valid
+            return 0x1626ba7e;
+        } else {
+            // Return invalid magic value if invalid
+            return 0xffffffff;
         }
-
-        if (v < 27) {
-            v += 27;
-        }
-
-        address recoveredAddress = ecrecover(messageHash, v, r, s);
-        return recoveredAddress == expectedSigner;
     }
 }

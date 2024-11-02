@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{env, str::FromStr, sync::Arc};
 
+use alloy::transports::http::reqwest::Url;
 use myrtle_wyckoff_dstack::jtrain::Jtrain;
 use rocket::{
     delete, get, launch, post, put, response::Redirect, routes, tokio::sync::RwLock, State,
@@ -29,7 +30,7 @@ fn health() -> &'static str {
 #[get("/state")]
 async fn state(state: &State<SharedState>) -> String {
     let read_lock = state.read().await;
-    format!("{:?}", read_lock.jtrain.warehouse.books.len())
+    format!("{:?}", read_lock.jtrain.orderbook_manager.books.len())
 }
 
 #[post("/create-settlement-order")]
@@ -70,7 +71,7 @@ async fn take_snapshot(state: &State<SharedState>) -> String {
 #[launch]
 fn rocket() -> _ {
     let initial_state = AppState {
-        jtrain: Jtrain::new(),
+        jtrain: Jtrain::new(Url::from_str(&env::var("RPC_URL").unwrap().to_string()).unwrap()),
     };
     let shared_state = Arc::new(RwLock::new(initial_state));
 

@@ -50,3 +50,5 @@ We currently don't handle the scenario where cowswap orders go unfilled. This is
 ## need to use a cowshed rather than the taker wallet for settlement orders
 
 ## settlement nonces should be non-sequential
+
+# Add method for distributing surplus funds to taker
