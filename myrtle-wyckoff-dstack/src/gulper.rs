@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::{Address, U256},
     providers::{fillers, Identity, RootProvider},
     transports::http::{Client, Http},
@@ -20,17 +20,23 @@ use crate::{
 #[tokio::main]
 pub async fn gulp_deposits(
     warehouse: &mut Warehouse,
-    provider: Arc<
-        fillers::FillProvider<
-            fillers::JoinFill<
-                Identity,
-                fillers::JoinFill<
-                    fillers::GasFiller,
-                    fillers::JoinFill<
-                        fillers::BlobGasFiller,
-                        fillers::JoinFill<fillers::NonceFiller, fillers::ChainIdFiller>,
+    provider: &Arc<
+        alloy::providers::fillers::FillProvider<
+            alloy::providers::fillers::JoinFill<
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::Identity,
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::fillers::GasFiller,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::BlobGasFiller,
+                            alloy::providers::fillers::JoinFill<
+                                alloy::providers::fillers::NonceFiller,
+                                alloy::providers::fillers::ChainIdFiller,
+                            >,
+                        >,
                     >,
                 >,
+                alloy::providers::fillers::WalletFiller<EthereumWallet>,
             >,
             RootProvider<Http<Client>>,
             Http<Client>,

@@ -52,3 +52,20 @@ We currently don't handle the scenario where cowswap orders go unfilled. This is
 ## settlement nonces should be non-sequential
 
 # Add method for distributing surplus funds to taker
+
+# Create an encrypted volume
+
+docker volume create --driver local \
+ --opt type=luks \
+ --opt device=/path/to/encrypted/storage \
+ --name myrtle_encrypted_data
+
+# Run the container
+
+docker run -d \
+ -p 8000:8000 \
+ -e RPC_URL=https://your-rpc-endpoint \
+ -e ENCRYPTION_KEY=your-32-byte-hex-key \
+ -e DSTACK_SECRET=your-dstack-secret \
+ -v myrtle_encrypted_data:/app/encrypted_data \
+ myrtle-wyckoff-dstack

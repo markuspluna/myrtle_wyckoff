@@ -12,6 +12,7 @@ use optimized_lob::{
 use tracing::info;
 // Note: We're not going to use strongreplay protection for now as theoretically the TEE should handle that
 sol! {
+    #[derive(serde::Serialize, serde::Deserialize)]
     struct Order {
         uint256 price;
         uint256 qty;
@@ -34,6 +35,7 @@ impl Order {
     }
 }
 sol! {
+    #[derive(serde::Serialize, serde::Deserialize)]
     struct CancelOrder {
         uint32 oid;
         uint64 timestamp;// unix timestamp in milliseconds
@@ -60,7 +62,7 @@ pub fn new_order(
     user: Address,
     order: Order,
     signature: Signature,
-) {
+) -> (Qty, Qty, Option<OrderId>) {
     // validate signature
     order.validate_signature(signature, user);
     // validate timestamp
@@ -138,6 +140,7 @@ pub fn new_order(
     info!("partially_filled_order: {:?}", partially_filled_order);
     info!("new_order_id: {:?}", new_order_id);
     warehouse.store(); //TODO: do we store here?
+    (qty_executed, volume_executed, new_order_id)
 }
 
 pub fn cancel_order(
@@ -182,7 +185,7 @@ pub fn replace_order(
     signature: Signature,
     warehouse: &mut Warehouse,
     orderbook_manager: &mut OrderBookManager,
-) {
+) -> OrderId {
     // validate signature
     order.validate_signature(signature, user);
     // validate timestamp
@@ -211,4 +214,5 @@ pub fn replace_order(
         }
     }
     orderbook_manager.replace_order(oid, new_oid, Qty(order.qty), order.price);
+    new_oid
 }

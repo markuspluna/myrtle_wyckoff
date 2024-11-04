@@ -8,7 +8,7 @@ use crate::{
     warehouse::Warehouse,
 };
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::Address,
     providers::{fillers, Identity, RootProvider},
     signers::{local::PrivateKeySigner, Signature, Signer},
@@ -24,17 +24,23 @@ use std::sync::Arc;
 // Note: There's an annoying order of operations issue here where dstack must sign the pre-hook before the taker can sign the order. This means there's no way to tie approved order emission to inventory snapshot success.
 pub async fn create_settlement_order(
     warehouse: &Warehouse,
-    provider: Arc<
-        fillers::FillProvider<
-            fillers::JoinFill<
-                Identity,
-                fillers::JoinFill<
-                    fillers::GasFiller,
-                    fillers::JoinFill<
-                        fillers::BlobGasFiller,
-                        fillers::JoinFill<fillers::NonceFiller, fillers::ChainIdFiller>,
+    provider: &Arc<
+        alloy::providers::fillers::FillProvider<
+            alloy::providers::fillers::JoinFill<
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::Identity,
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::fillers::GasFiller,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::BlobGasFiller,
+                            alloy::providers::fillers::JoinFill<
+                                alloy::providers::fillers::NonceFiller,
+                                alloy::providers::fillers::ChainIdFiller,
+                            >,
+                        >,
                     >,
                 >,
+                alloy::providers::fillers::WalletFiller<EthereumWallet>,
             >,
             RootProvider<Http<Client>>,
             Http<Client>,

@@ -12,9 +12,9 @@ use aes_gcm::{
     Aes256Gcm, Key,
 };
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::Address,
-    providers::{fillers, Identity, RootProvider},
+    providers::{fillers, Identity, Provider, RootProvider},
     signers::{local::PrivateKeySigner, Signer},
     sol_types::SolStruct,
     transports::http::{Client, Http},
@@ -26,17 +26,23 @@ use crate::{artifacts::ICheckpointer, domains::TOLIMAN_DOMAIN, warehouse::Wareho
 
 pub async fn snapshot(
     warehouse: &Warehouse,
-    provider: Arc<
-        fillers::FillProvider<
-            fillers::JoinFill<
-                Identity,
-                fillers::JoinFill<
-                    fillers::GasFiller,
-                    fillers::JoinFill<
-                        fillers::BlobGasFiller,
-                        fillers::JoinFill<fillers::NonceFiller, fillers::ChainIdFiller>,
+    provider: &Arc<
+        alloy::providers::fillers::FillProvider<
+            alloy::providers::fillers::JoinFill<
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::Identity,
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::fillers::GasFiller,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::BlobGasFiller,
+                            alloy::providers::fillers::JoinFill<
+                                alloy::providers::fillers::NonceFiller,
+                                alloy::providers::fillers::ChainIdFiller,
+                            >,
+                        >,
                     >,
                 >,
+                alloy::providers::fillers::WalletFiller<EthereumWallet>,
             >,
             RootProvider<Http<Client>>,
             Http<Client>,
@@ -87,6 +93,8 @@ pub async fn snapshot(
     let signer = PrivateKeySigner::from_slice(shared_secret.as_bytes()).unwrap();
     let hash = checkpoint.eip712_signing_hash(&TOLIMAN_DOMAIN);
     let signature = signer.sign_hash(&hash).await.unwrap();
+    let wallet = EthereumWallet::from(signer);
+
     checkpointer_contract
         .checkpoint(
             signature.to_k256().unwrap().to_bytes().to_vec().into(),
