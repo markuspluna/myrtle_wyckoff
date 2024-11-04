@@ -3,6 +3,7 @@ use alloy::sol;
 sol! (
     #[sol(rpc)]
     interface IDepositRegistry {
+        #[derive(serde::Deserialize)]
         struct Order {
             uint256 ethAmount;
             uint256 usdcAmount;

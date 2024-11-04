@@ -5,9 +5,10 @@
 // not entirely sure how to implement.
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     providers::{ProviderBuilder, RootProvider},
     rpc::client::ClientBuilder,
+    signers::local::PrivateKeySigner,
     transports::http::{reqwest::Url, Client, Http},
 };
 use optimized_lob::orderbook_manager::OrderBookManager;
@@ -21,32 +22,6 @@ pub struct Jtrain {
     pub provider: Arc<
         alloy::providers::fillers::FillProvider<
             alloy::providers::fillers::JoinFill<
-                alloy::providers::Identity,
-                alloy::providers::fillers::JoinFill<
-                    alloy::providers::fillers::GasFiller,
-                    alloy::providers::fillers::JoinFill<
-                        alloy::providers::fillers::BlobGasFiller,
-                        alloy::providers::fillers::JoinFill<
-                            alloy::providers::fillers::NonceFiller,
-                            alloy::providers::fillers::ChainIdFiller,
-                        >,
-                    >,
-                >,
-            >,
-            RootProvider<Http<Client>>,
-            Http<Client>,
-            Ethereum,
-        >,
-    >,
-}
-
-impl Jtrain {
-    pub fn new(http: Url) -> Self {
-        let warehouse = Warehouse::load();
-        let orderbook_manager = OrderBookManager::new();
-        let client = ClientBuilder::default().http(http); //TODO: revisit this when testing
-        let provider: Arc<
-            alloy::providers::fillers::FillProvider<
                 alloy::providers::fillers::JoinFill<
                     alloy::providers::Identity,
                     alloy::providers::fillers::JoinFill<
@@ -60,6 +35,42 @@ impl Jtrain {
                         >,
                     >,
                 >,
+                alloy::providers::fillers::WalletFiller<EthereumWallet>,
+            >,
+            RootProvider<Http<Client>>,
+            Http<Client>,
+            Ethereum,
+        >,
+    >,
+}
+
+impl Jtrain {
+    pub fn new(http: Url) -> Self {
+        let warehouse = Warehouse::load();
+        let orderbook_manager = OrderBookManager::new();
+        let client = ClientBuilder::default().http(http); //TODO: revisit this when testing
+
+        let shared_secret = "dstack-app-secret"; // TODO: replace with dstack app specific secret
+        let signer = PrivateKeySigner::from_slice(shared_secret.as_bytes()).unwrap();
+        let wallet = EthereumWallet::from(signer);
+        let provider: Arc<
+            alloy::providers::fillers::FillProvider<
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::fillers::JoinFill<
+                        alloy::providers::Identity,
+                        alloy::providers::fillers::JoinFill<
+                            alloy::providers::fillers::GasFiller,
+                            alloy::providers::fillers::JoinFill<
+                                alloy::providers::fillers::BlobGasFiller,
+                                alloy::providers::fillers::JoinFill<
+                                    alloy::providers::fillers::NonceFiller,
+                                    alloy::providers::fillers::ChainIdFiller,
+                                >,
+                            >,
+                        >,
+                    >,
+                    alloy::providers::fillers::WalletFiller<EthereumWallet>,
+                >,
                 RootProvider<Http<Client>>,
                 Http<Client>,
                 Ethereum,
@@ -67,6 +78,7 @@ impl Jtrain {
         > = Arc::new(
             ProviderBuilder::new()
                 .with_recommended_fillers()
+                .wallet(wallet)
                 .on_client(client),
         );
         Self {

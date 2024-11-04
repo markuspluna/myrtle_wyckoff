@@ -18,13 +18,22 @@
 
 use alloy::primitives::{Address, Uint};
 use core::ops::{AddAssign as AddAssignTrait, SubAssign as SubAssignTrait};
-use optimized_lob::{order::OrderId, price::Price, quantity::Qty};
+use optimized_lob::{
+    order::OrderId, orderbook_manager::OrderBookManager, price::Price, quantity::Qty,
+};
+use rocket::request;
+use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 
-use crate::cowswap::CowSwapOrder;
+use crate::{cowswap::CowSwapOrder, orderhere::Order};
 
-#[derive(Clone)]
+const INVENTORY_STORAGE_PATH: &str = "/mnt/encrypted_data/inventories.json";
+const DEPOSIT_CONTRACT_STORAGE_PATH: &str = "/mnt/encrypted_data/deposit_contract.json";
+const CHECKPOINT_CONTRACT_STORAGE_PATH: &str = "/mnt/encrypted_data/checkpoint_contract.json";
+const RPC_API_KEY_STORAGE_PATH: &str = "/mnt/host_data/rpc_api_key.json";
+
+#[derive(Clone, Debug)]
 pub struct Inventory {
     pub address: Address,
     pub eth_balance: Qty,
@@ -73,6 +82,18 @@ impl Inventory {
     pub fn net_usdc(&self) -> Qty {
         Qty(self.usdc_balance.0.saturating_sub(self.usdc_liabilities.0))
     }
+    pub fn to_json(&self) -> String {
+        let serializable_inventory = serde_json::json!({
+            "address": self.address.to_string(),
+            "eth_balance": self.eth_balance.0.to_string(),
+            "eth_liabilities": self.eth_liabilities.0.to_string(),
+            "usdc_balance": self.usdc_balance.0.to_string(),
+            "usdc_liabilities": self.usdc_liabilities.0.to_string(),
+            "deposit_nonce": self.deposit_nonce.to_string(),
+            "is_taker": self.is_taker.to_string()
+        });
+        serde_json::to_string(&serializable_inventory).unwrap()
+    }
 }
 impl Default for Inventory {
     fn default() -> Self {
@@ -96,10 +117,11 @@ pub struct Warehouse {
     pub checkpoint_contract: String,
     pub rpc_api_key: String,
     pub settlement_orders: Vec<CowSwapOrder>,
+    pub shared_secret: String,
 }
 
 impl Warehouse {
-    pub fn new() -> Self {
+    pub fn new(shared_secret: String) -> Self {
         Warehouse {
             inventories: HashMap::new(),
             oid_qty_by_address: HashMap::new(),
@@ -108,33 +130,78 @@ impl Warehouse {
             checkpoint_contract: String::new(),
             rpc_api_key: String::new(),
             settlement_orders: Vec::new(),
+            shared_secret: String::new(),
         }
     }
-    pub fn load() -> Self {
-        // TODO
-        Warehouse {
-            inventories: HashMap::new(),
-            oid_qty_by_address: HashMap::new(),
-            address_by_oid: HashMap::new(),
-            deposit_contract: String::new(),
-            checkpoint_contract: String::new(),
-            rpc_api_key: String::new(),
-            settlement_orders: Vec::new(),
+    pub async fn load() -> Self {
+        let shared_secret: String = reqwest::get("http://dstack-guest/key/<tag>").await?;
+        match Self::load_state() {
+            Ok(state) => Self {
+                inventories: state.inventories,
+                deposit_contract: state.deposit_contract,
+                checkpoint_contract: state.checkpoint_contract,
+                rpc_api_key: state.rpc_api_key,
+                oid_qty_by_address: HashMap::new(),
+                address_by_oid: HashMap::new(),
+                settlement_orders: Vec::new(),
+                shared_secret,
+            },
+            Err(e) => {
+                eprintln!("Failed to load state: {}", e);
+                Self::new(shared_secret)
+            }
         }
     }
 
-    pub fn store(&self) -> Self {
-        // TODO
-        Warehouse {
-            inventories: HashMap::new(),
-            oid_qty_by_address: HashMap::new(),
-            address_by_oid: HashMap::new(),
-            deposit_contract: String::new(),
-            checkpoint_contract: String::new(),
-            rpc_api_key: String::new(),
-            settlement_orders: Vec::new(),
-        }
+    pub fn store(&self) {
+        self.save_state().unwrap();
     }
+
+    fn load_state() -> Result<Warehouse, Box<dyn std::error::Error>> {
+        // Read the file
+        let inventory_file = std::fs::File::open(INVENTORY_STORAGE_PATH)?;
+
+        // Deserialize
+        let inventories: HashMap<Address, Inventory> = serde_json::from_reader(inventory_file)?;
+
+        let deposit_contract_file = std::fs::File::open(DEPOSIT_CONTRACT_STORAGE_PATH)?;
+        let deposit_contract: String = serde_json::from_reader(deposit_contract_file)?;
+
+        let checkpoint_contract_file = std::fs::File::open(CHECKPOINT_CONTRACT_STORAGE_PATH)?;
+        let checkpoint_contract: String = serde_json::from_reader(checkpoint_contract_file)?;
+
+        let rpc_api_key_file = std::fs::File::open(RPC_API_KEY_STORAGE_PATH)?;
+        let rpc_api_key: String = serde_json::from_reader(rpc_api_key_file)?;
+
+        Ok(Warehouse {
+            inventories,
+            deposit_contract,
+            checkpoint_contract,
+            rpc_api_key,
+            ..Default::default()
+        })
+    }
+
+    //TODO: I don't think we need to encrypt the state we store in the volume since I think it's stored in the TEE, but unsure
+    fn save_state(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Create directory if it doesn't exist
+        if let Some(parent) = std::path::Path::new(INVENTORY_STORAGE_PATH).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut file = std::fs::File::create(INVENTORY_STORAGE_PATH)?;
+        let serialized_inventories = serde_json::to_string(&self.inventories)?;
+        file.write_all(serialized_inventories)?;
+
+        let mut file = std::fs::File::create(DEPOSIT_CONTRACT_STORAGE_PATH)?;
+        file.write_all(&self.deposit_contract)?;
+
+        let mut file = std::fs::File::create(CHECKPOINT_CONTRACT_STORAGE_PATH)?;
+        file.write_all(&self.checkpoint_contract)?;
+
+        Ok(())
+    }
+
     pub fn add_order(
         &mut self,
         oid: OrderId,
@@ -246,6 +313,32 @@ impl Warehouse {
         remaining_qty.sub_assign(qty);
 
         self.add_order(oid, address, remaining_qty, price);
+    }
+
+    pub fn get_orders(&self, orderbook_manager: &OrderBookManager, user: Address) -> Vec<Order> {
+        let user_orders = self.oid_qty_by_address.get(&user).unwrap();
+        let level_pool = &orderbook_manager
+            .books
+            .get(0)
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .level_pool;
+        let timestamp = chrono::Utc::now().timestamp_millis() as u64;
+        user_orders
+            .iter()
+            .map(|(oid, qty)| {
+                let order = orderbook_manager.oid_map.get(*oid).unwrap().clone();
+                let price = level_pool.get(order.level_id()).unwrap().price();
+                Order {
+                    price: price.absolute(),
+                    qty: qty.0,
+                    is_bid: price.is_bid(),
+                    timestamp: timestamp,
+                }
+            })
+            .collect()
     }
 
     pub fn add_settlement_order(&mut self, order: CowSwapOrder) {
