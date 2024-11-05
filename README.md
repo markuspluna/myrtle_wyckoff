@@ -3,12 +3,10 @@
 Super Fast Super Secret Super Hot Exchanges at Myrtle Wyckoff
 
 - [ ] deploy contracts
-- [ ] set up snapshotter
-- [ ] set up orderhere
+- [ ] need gas cost estimation
+- [ ] add dstack framework
 - [ ] plug all the dstack components together
 - [ ] probably need to make sure i'm not being an idiot about concurrency
-- [ ] use application specific secret key
-- [ ] update orderbook (and related components) for 18 decimal support - need i256
 - [ ] test ofc
 - [ ] need some usage scripts
 
