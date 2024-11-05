@@ -12,6 +12,7 @@ use aes_gcm::{
     Aes256Gcm, Key,
 };
 use alloy::{
+    hex::{FromHex, ToHexExt},
     network::{Ethereum, EthereumWallet},
     primitives::Address,
     providers::{fillers, Identity, Provider, RootProvider},
@@ -19,6 +20,8 @@ use alloy::{
     sol_types::SolStruct,
     transports::http::{Client, Http},
 };
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 use std::sync::Arc;
 
@@ -50,10 +53,11 @@ pub async fn snapshot(
         >,
     >,
 ) {
-    // encrypt inventory state
-    let shared_secret = "dstack-app-secret"; // TODO: replace with dstack app specific secret
-
-    let key = Key::<Aes256Gcm>::from_slice(shared_secret.as_bytes());
+    // Derive a proper encryption key from the Ethereum private key - TODO: this needs to be tested
+    let hkdf = Hkdf::<Sha256>::new(None, warehouse.shared_secret.as_bytes());
+    let mut key_bytes = [0u8; 32];
+    hkdf.expand(b"aes-key", &mut key_bytes).unwrap();
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
 
     let cipher = Aes256Gcm::new(&key);
     let encrypted_inventory_state: Vec<u8> =
@@ -71,7 +75,7 @@ pub async fn snapshot(
                 encrypted_state
             });
 
-    let contract_address = Address::from_slice(warehouse.checkpoint_contract.as_bytes());
+    let contract_address = Address::from_hex(warehouse.checkpoint_contract.encode_hex()).unwrap();
     let checkpointer_contract = ICheckpointer::new(contract_address, provider);
     let checkpoint_nonce = checkpointer_contract
         .inventory_checkpoint_nonce()
@@ -90,10 +94,9 @@ pub async fn snapshot(
         inventory_state: encrypted_inventory_state,
         settlement_orders: settlement_orders_json,
     };
-    let signer = PrivateKeySigner::from_slice(shared_secret.as_bytes()).unwrap();
+    let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
     let hash = checkpoint.eip712_signing_hash(&TOLIMAN_DOMAIN);
     let signature = signer.sign_hash(&hash).await.unwrap();
-    let wallet = EthereumWallet::from(signer);
 
     checkpointer_contract
         .checkpoint(

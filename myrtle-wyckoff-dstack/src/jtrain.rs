@@ -45,13 +45,12 @@ pub struct Jtrain {
 }
 
 impl Jtrain {
-    pub fn new(http: Url) -> Self {
-        let warehouse = Warehouse::load();
+    pub async fn new(http: Url) -> Self {
+        let warehouse = Warehouse::load().await;
         let orderbook_manager = OrderBookManager::new();
         let client = ClientBuilder::default().http(http); //TODO: revisit this when testing
 
-        let shared_secret = "dstack-app-secret"; // TODO: replace with dstack app specific secret
-        let signer = PrivateKeySigner::from_slice(shared_secret.as_bytes()).unwrap();
+        let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
         let wallet = EthereumWallet::from(signer);
         let provider: Arc<
             alloy::providers::fillers::FillProvider<

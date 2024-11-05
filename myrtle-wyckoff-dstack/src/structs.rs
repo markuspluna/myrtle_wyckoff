@@ -1,4 +1,6 @@
-use alloy::sol;
+use alloy::{primitives::Address, signers::Signature, sol, sol_types::SolStruct};
+
+use crate::domains::DSTACK_DOMAIN;
 
 sol! {
     struct Checkpoint {

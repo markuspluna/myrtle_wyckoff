@@ -1,26 +1,23 @@
 use std::{env, str::FromStr, sync::Arc};
 
-use alloy::{primitives::Address, signers::Signature, transports::http::reqwest::Url};
+use alloy::{
+    primitives::Address,
+    signers::{local::PrivateKeySigner, Signature},
+    transports::http::reqwest::Url,
+};
 use myrtle_wyckoff_dstack::{
     artifacts::IDepositRegistry,
     gulper,
     jtrain::Jtrain,
     orderhere::{self, CancelOrder, Order},
     settler::create_settlement_order,
-    snapshotter, warehouse,
+    snapshotter,
+    structs::UserRequest,
 };
 use optimized_lob::order::OrderId;
 use rocket::{
-    catch, catchers, delete,
-    fairing::{Fairing, Info, Kind},
-    get,
-    http::Status,
-    launch, post, put,
-    response::{Redirect, Responder, Result},
-    routes,
-    serde::json::Json,
-    tokio::sync::RwLock,
-    Error, Request, State,
+    catch, catchers, delete, get, http::Status, launch, post, put, response::Redirect, routes,
+    serde::json::Json, tokio::sync::RwLock, Request, State,
 };
 
 struct AppState {
@@ -35,7 +32,7 @@ fn default_catcher(status: Status, request: &Request) -> String {
 }
 
 #[get("/")]
-fn index(state: &State<SharedState>) -> Redirect {
+fn index() -> Redirect {
     Redirect::to("https://tplus.cx")
 }
 
@@ -49,10 +46,25 @@ fn health() -> &'static str {
     "Healthy!"
 }
 
-#[get("/state")]
-async fn state(state: &State<SharedState>) -> String {
-    let read_lock = state.read().await;
-    format!("{:?}", read_lock.jtrain.orderbook_manager.books.len())
+#[get("/public-key")]
+async fn get_public_key(state: &State<SharedState>) -> String {
+    let jtrain = &state.read().await.jtrain;
+    let signer = PrivateKeySigner::from_slice(jtrain.warehouse.shared_secret.as_bytes()).unwrap();
+    signer.address().to_string()
+}
+
+#[put("/contract-addresses/<deposit_registry_address>/<checkpointer_address>")]
+async fn set_contract_addresses(
+    state: &State<SharedState>,
+    deposit_registry_address: String,
+    checkpointer_address: String,
+) -> String {
+    let mut guard = state.write().await;
+
+    guard.jtrain.warehouse.deposit_contract = deposit_registry_address;
+    guard.jtrain.warehouse.checkpoint_contract = checkpointer_address;
+    guard.jtrain.warehouse.store();
+    "Thanks!".to_string()
 }
 
 #[post("/new-settlement-order/<user>/<taker_signature>", data = "<order>")]
@@ -93,6 +105,7 @@ async fn get_orders(
 ) -> String {
     let jtrain = &state.read().await.jtrain;
     let user = Address::from_raw_public_key(user.as_bytes());
+    let signature = Signature::from_str(&signature).unwrap();
     request.validate_signature(signature, user);
     request.validate_timestamp();
     request.validate_request_type("orders");
@@ -192,17 +205,19 @@ async fn gulp_deposits(state: &State<SharedState>, user: String) -> String {
     "Thanks!".to_string()
 }
 
+///@dev: run ever 5 seconds
 #[post("/take_snapshot")]
 async fn take_snapshot(state: &State<SharedState>) -> String {
     let jtrain = &state.read().await.jtrain;
-    snapshotter::snapshot(&jtrain.warehouse, &jtrain.provider);
+    snapshotter::snapshot(&jtrain.warehouse, &jtrain.provider).await;
     "Thanks!".to_string()
 }
 
 #[launch]
-fn rocket() -> _ {
+async fn rocket() -> _ {
     let initial_state = AppState {
-        jtrain: Jtrain::new(Url::from_str(&env::var("RPC_URL").unwrap().to_string()).unwrap()),
+        jtrain: Jtrain::new(Url::from_str(&env::var("RPC_URL").unwrap().to_string()).unwrap())
+            .await,
     };
     let shared_state = Arc::new(RwLock::new(initial_state));
 
@@ -213,7 +228,8 @@ fn rocket() -> _ {
             routes![
                 index,
                 health,
-                state,
+                set_contract_addresses,
+                get_public_key,
                 hello,
                 new_settlement_order,
                 get_settlement_order_length,

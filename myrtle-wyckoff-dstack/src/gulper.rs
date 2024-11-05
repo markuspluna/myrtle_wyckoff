@@ -4,9 +4,10 @@
 use std::sync::Arc;
 
 use alloy::{
+    hex::{FromHex, ToHexExt},
     network::{Ethereum, EthereumWallet},
     primitives::{Address, U256},
-    providers::{fillers, Identity, RootProvider},
+    providers::RootProvider,
     transports::http::{Client, Http},
 };
 use core::ops::AddAssign as AddAssignTrait;
@@ -49,9 +50,9 @@ pub async fn gulp_deposits(
     // but this is a demo/poc so RPC for now
 
     // Contract address and ABI
-    let contract_address = Address::from_slice(warehouse.deposit_contract.as_bytes()); // Create contract instance
+    let contract_address = Address::from_hex(warehouse.deposit_contract.encode_hex()).unwrap(); // Create contract instance
 
-    let deposit_registry_contract = IDepositRegistry::new(contract_address, &provider); //pretty sure .into() won't work TODO: revisit
+    let deposit_registry_contract = IDepositRegistry::new(contract_address, &provider);
 
     // Get user inventory
     let inventory = warehouse
