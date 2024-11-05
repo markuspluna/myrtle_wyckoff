@@ -16,15 +16,16 @@
 // Both of these probably need some caching mechanism since we don't
 // want to constantly encrypt and decrypt, but again unsure on the volume side
 
-use alloy::primitives::{Address, Uint};
+use alloy::{
+    hex::{FromHex, ToHexExt},
+    primitives::{Address, Uint, U256},
+};
 use core::ops::{AddAssign as AddAssignTrait, SubAssign as SubAssignTrait};
 use optimized_lob::{
     order::OrderId, orderbook_manager::OrderBookManager, price::Price, quantity::Qty,
 };
-use rocket::request;
-use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use crate::{cowswap::CowSwapOrder, orderhere::Order};
 
@@ -94,6 +95,23 @@ impl Inventory {
         });
         serde_json::to_string(&serializable_inventory).unwrap()
     }
+    pub fn from_json(json: String) -> Self {
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        Inventory::new(
+            Address::from_hex(&value["address"].as_str().unwrap().encode_hex()).unwrap(),
+            Qty(U256::from_str_radix(&value["eth_balance"].as_str().unwrap(), 10).unwrap()),
+            Qty(U256::from_str_radix(&value["eth_liabilities"].as_str().unwrap(), 10).unwrap()),
+            Qty(U256::from_str_radix(&value["usdc_balance"].as_str().unwrap(), 10).unwrap()),
+            Qty(U256::from_str_radix(&value["usdc_liabilities"].as_str().unwrap(), 10).unwrap()),
+            value["deposit_nonce"]
+                .as_str()
+                .unwrap()
+                .parse::<u32>()
+                .unwrap(),
+            value["is_taker"].as_str().unwrap().parse::<bool>().unwrap(),
+        )
+    }
 }
 impl Default for Inventory {
     fn default() -> Self {
@@ -130,22 +148,18 @@ impl Warehouse {
             checkpoint_contract: String::new(),
             rpc_api_key: String::new(),
             settlement_orders: Vec::new(),
-            shared_secret: String::new(),
+            shared_secret: shared_secret,
         }
     }
     pub async fn load() -> Self {
-        let shared_secret: String = reqwest::get("http://dstack-guest/key/<tag>").await?;
-        match Self::load_state() {
-            Ok(state) => Self {
-                inventories: state.inventories,
-                deposit_contract: state.deposit_contract,
-                checkpoint_contract: state.checkpoint_contract,
-                rpc_api_key: state.rpc_api_key,
-                oid_qty_by_address: HashMap::new(),
-                address_by_oid: HashMap::new(),
-                settlement_orders: Vec::new(),
-                shared_secret,
-            },
+        let shared_secret: String = reqwest::get("http://dstack-guest/key/<tag>")
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        match Self::load_state(&shared_secret) {
+            Ok(state) => state,
             Err(e) => {
                 eprintln!("Failed to load state: {}", e);
                 Self::new(shared_secret)
@@ -157,12 +171,20 @@ impl Warehouse {
         self.save_state().unwrap();
     }
 
-    fn load_state() -> Result<Warehouse, Box<dyn std::error::Error>> {
+    fn load_state(shared_secret: &String) -> Result<Warehouse, Box<dyn std::error::Error>> {
         // Read the file
         let inventory_file = std::fs::File::open(INVENTORY_STORAGE_PATH)?;
 
         // Deserialize
-        let inventories: HashMap<Address, Inventory> = serde_json::from_reader(inventory_file)?;
+        let inventories: String = serde_json::from_reader(inventory_file)?;
+        let inventories: HashMap<Address, Inventory> = inventories
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                let inventory = Inventory::from_json(s.to_string());
+                (inventory.address, inventory)
+            })
+            .collect();
 
         let deposit_contract_file = std::fs::File::open(DEPOSIT_CONTRACT_STORAGE_PATH)?;
         let deposit_contract: String = serde_json::from_reader(deposit_contract_file)?;
@@ -178,26 +200,29 @@ impl Warehouse {
             deposit_contract,
             checkpoint_contract,
             rpc_api_key,
-            ..Default::default()
+            oid_qty_by_address: HashMap::new(),
+            address_by_oid: HashMap::new(),
+            settlement_orders: Vec::new(),
+            shared_secret: shared_secret.clone(),
         })
     }
 
-    //TODO: I don't think we need to encrypt the state we store in the volume since I think it's stored in the TEE, but unsure
+    //TODO: I don't think we need to encrypt the state we store in the volume since I think it's stored in the TEE, but should validate
     fn save_state(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Create directory if it doesn't exist
-        if let Some(parent) = std::path::Path::new(INVENTORY_STORAGE_PATH).parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
         let mut file = std::fs::File::create(INVENTORY_STORAGE_PATH)?;
-        let serialized_inventories = serde_json::to_string(&self.inventories)?;
-        file.write_all(serialized_inventories)?;
+        let serialized_inventories = self
+            .inventories
+            .iter()
+            .fold(String::new(), |acc, (_, inventory)| {
+                acc + &inventory.to_json() + "\n"
+            });
+        file.write_all(serialized_inventories.as_bytes())?;
 
         let mut file = std::fs::File::create(DEPOSIT_CONTRACT_STORAGE_PATH)?;
-        file.write_all(&self.deposit_contract)?;
+        file.write_all(&self.deposit_contract.as_bytes())?;
 
         let mut file = std::fs::File::create(CHECKPOINT_CONTRACT_STORAGE_PATH)?;
-        file.write_all(&self.checkpoint_contract)?;
+        file.write_all(&self.checkpoint_contract.as_bytes())?;
 
         Ok(())
     }

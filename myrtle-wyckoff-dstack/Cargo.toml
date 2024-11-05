@@ -27,6 +27,8 @@ aes = "0.8.4"
 aes-gcm = { version = "0.10.3", features = ["heapless"] }
 tracing = "0.1.40"
 reqwest = "0.12.9"
+hkdf = "0.12"
+sha2 = "0.10"
 
 [[bin]]
 name = "myrtle-wyckoff-dstack"

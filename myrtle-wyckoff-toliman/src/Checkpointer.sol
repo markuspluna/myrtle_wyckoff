@@ -8,8 +8,7 @@ contract Checkpointer {
     uint256 public inventory_checkpoint_nonce;
     event SettlementOrders(string[] settlement_orders);
     /// @dev `keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")`.
-    bytes32 internal constant _DOMAIN_TYPEHASH =
-        0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f; //TODO: update with correct domain typehash
+    bytes32 internal _DOMAIN_TYPEHASH;
 
     // Vec of AES encoded inventories structured as (user: Address, eth_balance: i128, usdc_balance: i128, deposit nonce: u32, is_taker: u8)
     // In prod this should store multiple checkpoints and overwrite oldest with newest
@@ -17,6 +16,15 @@ contract Checkpointer {
 
     constructor() {
         admin = msg.sender;
+    }
+    function set_domain_typehash(bytes32 domain_typehash) external {
+        if (msg.sender != admin) {
+            revert("Only the admin can set the domain typehash");
+        }
+        if (_DOMAIN_TYPEHASH != 0) {
+            revert("Domain typehash already set");
+        }
+        _DOMAIN_TYPEHASH = domain_typehash;
     }
 
     function set_admin(address new_admin) external {

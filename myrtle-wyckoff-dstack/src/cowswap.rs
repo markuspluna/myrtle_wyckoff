@@ -1,5 +1,5 @@
 use alloy::{
-    hex,
+    hex::{self, FromHex, ToHexExt},
     primitives::{Address, Bytes},
     signers::{local::PrivateKeySigner, Signature, Signer},
     sol,
@@ -113,6 +113,7 @@ pub struct CowSwapOrder {
 }
 impl CowSwapOrder {
     pub async fn from_cowswap_order_digest(
+        secret_key: &String,
         cowswap_order_digest: CowSwapOrderDigest,
     ) -> CowSwapOrder {
         // this should likely be declared in a constants file but I'll leave it here since it needs to be computed on-the-fly for a multi-chain setup
@@ -120,9 +121,8 @@ impl CowSwapOrder {
             name: "Gnosis Protocol",
             version: "v2",
             chain_id: 1,
-            verifying_contract: Address::from_slice("0x9008D19f58AAbD9eD0D60971565AA8510560ab41".as_bytes()),
-        }; //this should likely be declare
-        let secret_key = ""; // TODO: get shared app secret key from dstack
+            verifying_contract: Address::from_hex("0x9008D19f58AAbD9eD0D60971565AA8510560ab41".encode_hex()).unwrap(),
+        };
         let signer = PrivateKeySigner::from_slice(secret_key.as_bytes()).unwrap();
         let hash = cowswap_order_digest.eip712_signing_hash(&cowswap_domain);
 

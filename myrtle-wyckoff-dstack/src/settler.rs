@@ -10,7 +10,7 @@ use crate::{
 use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::Address,
-    providers::{fillers, Identity, RootProvider},
+    providers::RootProvider,
     signers::{local::PrivateKeySigner, Signature, Signer},
     sol_types::SolStruct,
     transports::http::{Client, Http},
@@ -19,9 +19,8 @@ use alloy::{
 use std::sync::Arc;
 
 // Create settlement orders to be posted as part of the state snapshot
-// TODO: this should probably use cowshed https://github.com/cowdao-grants/cow-shed/tree/main instead of transferring funds to the taker
+// TODO: this should probably use cowshed https://github.com/cowdao-grants/cow-shed/tree/main to properly distribute surplus to the taker
 // Note: A malicious taker could submit settlement orders that will never fill but will cause state updates. This is solved with a state lock system.
-// Note: There's an annoying order of operations issue here where dstack must sign the pre-hook before the taker can sign the order. This means there's no way to tie approved order emission to inventory snapshot success.
 pub async fn create_settlement_order(
     warehouse: &Warehouse,
     provider: &Arc<
@@ -83,12 +82,11 @@ pub async fn create_settlement_order(
         panic!("user does not have enough eth");
     }
 
-    let contract_address = "0x...".parse::<Address>().unwrap(); // TODO: replace with contract address
+    let contract_address = warehouse.deposit_contract.parse::<Address>().unwrap();
 
     let deposit_registry_contract = IDepositRegistry::new(contract_address, provider);
 
-    let secret_key = ""; // TODO: get shared app secret key from dstack
-    let signer = PrivateKeySigner::from_slice(secret_key.as_bytes()).unwrap();
+    let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
     let hook_signature = signer.sign_hash(&order_hash).await.unwrap();
 
     // Get calldata
@@ -105,10 +103,13 @@ pub async fn create_settlement_order(
         "100".to_string(), // TODO: figure out what gas cost is
     );
     let app_data = pre_hook.to_app_data();
-    CowSwapOrder::from_cowswap_order_digest(CowSwapOrderDigest::from_settlement_order(
-        &warehouse.deposit_contract.clone(),
-        order,
-        app_data,
-    ))
+    CowSwapOrder::from_cowswap_order_digest(
+        &warehouse.shared_secret,
+        CowSwapOrderDigest::from_settlement_order(
+            &warehouse.deposit_contract.clone(),
+            order,
+            app_data,
+        ),
+    )
     .await
 }
