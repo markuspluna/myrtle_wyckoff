@@ -7,21 +7,14 @@
 // * creates a signature of the above data
 // * posts the encrypted inventory state, and settlement orders to suave via the Checkpointer contracts checkpoint() function
 
-use aes_gcm::{
-    aead::{heapless::Vec as HeaplessVec, AeadCore, AeadInPlace, KeyInit, OsRng},
-    Aes256Gcm, Key,
-};
 use alloy::{
-    hex::{FromHex, ToHexExt},
     network::{Ethereum, EthereumWallet},
-    primitives::Address,
-    providers::{fillers, Identity, Provider, RootProvider},
-    signers::{local::PrivateKeySigner, Signer},
+    providers::RootProvider,
+    rpc::types::TransactionReceipt,
+    signers::Signer,
     sol_types::SolStruct,
     transports::http::{Client, Http},
 };
-use hkdf::Hkdf;
-use sha2::Sha256;
 
 use std::sync::Arc;
 
@@ -52,61 +45,35 @@ pub async fn snapshot(
             Ethereum,
         >,
     >,
-) {
-    // Derive a proper encryption key from the Ethereum private key - TODO: this needs to be tested
-    let hkdf = Hkdf::<Sha256>::new(None, warehouse.shared_secret.as_bytes());
-    let mut key_bytes = [0u8; 32];
-    hkdf.expand(b"aes-key", &mut key_bytes).unwrap();
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-
-    let cipher = Aes256Gcm::new(&key);
-    let encrypted_inventory_state: Vec<u8> =
-        warehouse
-            .inventories
-            .iter()
-            .fold(Vec::new(), |mut encrypted_state, inventory| {
-                let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-                let mut buffer: HeaplessVec<u8, 128> =
-                    HeaplessVec::from_slice(&inventory.1.to_bytes()).unwrap();
-                cipher
-                    .encrypt_in_place(&nonce, b"", &mut buffer)
-                    .expect("encryption failure!");
-                encrypted_state.extend_from_slice(&buffer);
-                encrypted_state
-            });
-
-    let contract_address = Address::from_hex(warehouse.checkpoint_contract.encode_hex()).unwrap();
-    let checkpointer_contract = ICheckpointer::new(contract_address, provider);
+) -> Result<TransactionReceipt, Box<dyn std::error::Error>> {
+    let checkpointer_contract = ICheckpointer::new(warehouse.checkpoint_contract, provider);
     let checkpoint_nonce = checkpointer_contract
         .inventory_checkpoint_nonce()
         .call()
-        .await
-        .unwrap()
+        .await?
         ._0;
+
     let settlement_orders_json: Vec<String> = warehouse
         .settlement_orders
         .iter()
-        .map(|order| serde_json::to_string(order).unwrap())
-        .collect();
-    // create signature
+        .map(|order| serde_json::to_string(order))
+        .collect::<Result<_, _>>()?;
+
+    // Create and sign checkpoint
     let checkpoint = ICheckpointer::Checkpoint {
         nonce: checkpoint_nonce,
-        inventory_state: encrypted_inventory_state,
+        inventory_state: warehouse.get_encrypted_inventory()?,
         settlement_orders: settlement_orders_json,
     };
-    let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
     let hash = checkpoint.eip712_signing_hash(&TOLIMAN_DOMAIN);
-    let signature = signer.sign_hash(&hash).await.unwrap();
+    let signature = warehouse.signer.sign_hash(&hash).await?;
+    let k256_sig = signature.to_k256()?.to_bytes().to_vec();
 
-    checkpointer_contract
-        .checkpoint(
-            signature.to_k256().unwrap().to_bytes().to_vec().into(),
-            checkpoint,
-        )
+    // Execute transaction and return receipt directly
+    Ok(checkpointer_contract
+        .checkpoint(k256_sig.into(), checkpoint)
         .send()
-        .await
-        .unwrap()
+        .await?
         .get_receipt()
-        .await
-        .unwrap();
+        .await?)
 }

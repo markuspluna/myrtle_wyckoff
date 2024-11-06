@@ -5,13 +5,14 @@ use crate::{
     artifacts::IDepositRegistry,
     cowswap::{CowSwapHook, CowSwapOrder, CowSwapOrderDigest},
     domains::MAINNET_DOMAIN,
+    errors::MwError,
     warehouse::Warehouse,
 };
 use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::Address,
     providers::RootProvider,
-    signers::{local::PrivateKeySigner, Signature, Signer},
+    signers::{Signature, Signer},
     sol_types::SolStruct,
     transports::http::{Client, Http},
 };
@@ -49,23 +50,24 @@ pub async fn create_settlement_order(
     user: Address,
     order: IDepositRegistry::Order,
     taker_signature: Signature,
-) -> CowSwapOrder {
+) -> Result<CowSwapOrder, MwError> {
     // Validate order
     let order_hash = order.eip712_signing_hash(&MAINNET_DOMAIN);
-    if user
-        != taker_signature
-            .recover_address_from_prehash(&order_hash)
-            .unwrap()
-    {
-        panic!("invalid signature")
-    };
+    let recovered_address = taker_signature
+        .recover_address_from_prehash(&order_hash)
+        .map_err(|_| MwError::SignatureRecoveryError)?;
+
+    if user != recovered_address {
+        return Err(MwError::InvalidSignature);
+    }
+
     let taker_inventory = warehouse
         .inventories
         .get(&user)
         .cloned()
         .unwrap_or_default();
     if !taker_inventory.is_taker {
-        panic!("user is not a taker");
+        return Err(MwError::NotTaker);
     }
 
     if order.isBid
@@ -73,24 +75,31 @@ pub async fn create_settlement_order(
             .net_usdc()
             .lt(&optimized_lob::quantity::Qty(order.clone().usdcAmount))
     {
-        panic!("user does not have enough usdc");
+        return Err(MwError::InsufficientBalance {
+            token: "USDC".to_string(),
+        });
     } else if !order.clone().isBid
         && taker_inventory
             .net_eth()
             .lt(&optimized_lob::quantity::Qty(order.clone().ethAmount))
     {
-        panic!("user does not have enough eth");
+        return Err(MwError::InsufficientBalance {
+            token: "ETH".to_string(),
+        });
     }
 
-    let contract_address = warehouse.deposit_contract.parse::<Address>().unwrap();
+    let deposit_registry_contract = IDepositRegistry::new(warehouse.deposit_contract, provider);
 
-    let deposit_registry_contract = IDepositRegistry::new(contract_address, provider);
+    let hook_signature = warehouse
+        .signer
+        .sign_hash(&order_hash)
+        .await
+        .map_err(|_| MwError::SigningError)?;
 
-    let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
-    let hook_signature = signer.sign_hash(&order_hash).await.unwrap();
+    let k256_sig = hook_signature
+        .to_k256()
+        .map_err(|_| MwError::SignatureConversionError)?;
 
-    // Get calldata
-    let k256_sig = hook_signature.to_k256().unwrap();
     let signature_bytes = k256_sig.to_bytes().to_vec();
     let pre_hook_calldata = deposit_registry_contract
         .pull_settlement_funds(order.clone(), signature_bytes.into())
@@ -103,13 +112,13 @@ pub async fn create_settlement_order(
         "100".to_string(), // TODO: figure out what gas cost is
     );
     let app_data = pre_hook.to_app_data();
-    CowSwapOrder::from_cowswap_order_digest(
-        &warehouse.shared_secret,
+    Ok(CowSwapOrder::from_cowswap_order_digest(
+        &warehouse.signer,
         CowSwapOrderDigest::from_settlement_order(
-            &warehouse.deposit_contract.clone(),
+            &warehouse.deposit_contract.to_string(),
             order,
             app_data,
         ),
     )
-    .await
+    .await?)
 }

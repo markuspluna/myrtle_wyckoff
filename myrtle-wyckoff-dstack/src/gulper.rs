@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use alloy::{
-    hex::{FromHex, ToHexExt},
     network::{Ethereum, EthereumWallet},
     primitives::{Address, U256},
     providers::RootProvider,
@@ -45,14 +44,10 @@ pub async fn gulp_deposits(
         >,
     >,
     user: Address,
-) -> [U256; 2] {
+) -> Result<[U256; 2], Box<dyn std::error::Error>> {
     // this should use the dstack in-TDX light client rather than the provider so we don't need to trust the RPC
     // but this is a demo/poc so RPC for now
-
-    // Contract address and ABI
-    let contract_address = Address::from_hex(warehouse.deposit_contract.encode_hex()).unwrap(); // Create contract instance
-
-    let deposit_registry_contract = IDepositRegistry::new(contract_address, &provider);
+    let deposit_registry_contract = IDepositRegistry::new(warehouse.deposit_contract, provider);
 
     // Get user inventory
     let inventory = warehouse
@@ -64,8 +59,7 @@ pub async fn gulp_deposits(
     let deposits: Vec<[U256; 2]> = deposit_registry_contract
         .get_deposits(inventory.deposit_nonce.clone(), user.clone())
         .call()
-        .await
-        .unwrap()
+        .await?
         ._0;
 
     let mut new_deposits: [U256; 2] = [U256::ZERO, U256::ZERO];
@@ -83,5 +77,5 @@ pub async fn gulp_deposits(
         .add_assign(Qty(new_deposits[1].clone()));
 
     warehouse.store(); // maybe don't store here?
-    new_deposits
+    Ok(new_deposits)
 }

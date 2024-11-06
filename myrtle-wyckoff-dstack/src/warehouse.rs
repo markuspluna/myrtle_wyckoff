@@ -16,18 +16,25 @@
 // Both of these probably need some caching mechanism since we don't
 // want to constantly encrypt and decrypt, but again unsure on the volume side
 
+use aes_gcm::{
+    aead::{heapless::Vec as HeaplessVec, AeadCore, AeadInPlace, KeyInit, OsRng},
+    Aes256Gcm, Key,
+};
 use alloy::{
     hex::{FromHex, ToHexExt},
     primitives::{Address, Uint, U256},
+    signers::local::PrivateKeySigner,
 };
 use core::ops::{AddAssign as AddAssignTrait, SubAssign as SubAssignTrait};
+use hkdf::Hkdf;
 use optimized_lob::{
     order::OrderId, orderbook_manager::OrderBookManager, price::Price, quantity::Qty,
 };
+use sha2::Sha256;
 
 use std::{collections::HashMap, io::Write};
 
-use crate::{cowswap::CowSwapOrder, orderhere::Order};
+use crate::{cowswap::CowSwapOrder, errors::MwError, orderhere::Order};
 
 const INVENTORY_STORAGE_PATH: &str = "/mnt/encrypted_data/inventories.json";
 const DEPOSIT_CONTRACT_STORAGE_PATH: &str = "/mnt/encrypted_data/deposit_contract.json";
@@ -131,24 +138,26 @@ pub struct Warehouse {
     pub inventories: HashMap<Address, Inventory>, // User inventories
     pub oid_qty_by_address: HashMap<Address, HashMap<OrderId, Qty>>, // address, order ids
     pub address_by_oid: HashMap<OrderId, Address>, // order id, address
-    pub deposit_contract: String,
-    pub checkpoint_contract: String,
+    pub deposit_contract: Address,
+    pub checkpoint_contract: Address,
     pub rpc_api_key: String,
     pub settlement_orders: Vec<CowSwapOrder>,
-    pub shared_secret: String,
+    pub signer: PrivateKeySigner,
+    pub encryption_key: Key<Aes256Gcm>,
 }
 
 impl Warehouse {
-    pub fn new(shared_secret: String) -> Self {
+    pub fn new(signer: &PrivateKeySigner, encryption_key: &Key<Aes256Gcm>) -> Self {
         Warehouse {
             inventories: HashMap::new(),
             oid_qty_by_address: HashMap::new(),
             address_by_oid: HashMap::new(),
-            deposit_contract: String::new(),
-            checkpoint_contract: String::new(),
+            deposit_contract: Address::default(),
+            checkpoint_contract: Address::default(),
             rpc_api_key: String::new(),
             settlement_orders: Vec::new(),
-            shared_secret: shared_secret,
+            signer: signer.clone(),
+            encryption_key: encryption_key.clone(),
         }
     }
     pub async fn load() -> Self {
@@ -158,11 +167,17 @@ impl Warehouse {
             .json()
             .await
             .unwrap();
-        match Self::load_state(&shared_secret) {
+        let signer = PrivateKeySigner::from_slice(shared_secret.as_bytes()).unwrap();
+        // Derive encryption key
+        let hkdf = Hkdf::<Sha256>::new(None, shared_secret.as_bytes());
+        let mut key_bytes = [0u8; 32];
+        hkdf.expand(b"aes-key", &mut key_bytes).unwrap();
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+        match Self::load_state(&signer, key) {
             Ok(state) => state,
             Err(e) => {
                 eprintln!("Failed to load state: {}", e);
-                Self::new(shared_secret)
+                Self::new(&signer, &key)
             }
         }
     }
@@ -171,7 +186,10 @@ impl Warehouse {
         self.save_state().unwrap();
     }
 
-    fn load_state(shared_secret: &String) -> Result<Warehouse, Box<dyn std::error::Error>> {
+    fn load_state(
+        signer: &PrivateKeySigner,
+        encryption_key: &Key<Aes256Gcm>,
+    ) -> Result<Warehouse, Box<dyn std::error::Error>> {
         // Read the file
         let inventory_file = std::fs::File::open(INVENTORY_STORAGE_PATH)?;
 
@@ -188,9 +206,12 @@ impl Warehouse {
 
         let deposit_contract_file = std::fs::File::open(DEPOSIT_CONTRACT_STORAGE_PATH)?;
         let deposit_contract: String = serde_json::from_reader(deposit_contract_file)?;
+        let deposit_contract: Address = Address::from_hex(&deposit_contract.encode_hex()).unwrap();
 
         let checkpoint_contract_file = std::fs::File::open(CHECKPOINT_CONTRACT_STORAGE_PATH)?;
         let checkpoint_contract: String = serde_json::from_reader(checkpoint_contract_file)?;
+        let checkpoint_contract: Address =
+            Address::from_hex(&checkpoint_contract.encode_hex()).unwrap();
 
         let rpc_api_key_file = std::fs::File::open(RPC_API_KEY_STORAGE_PATH)?;
         let rpc_api_key: String = serde_json::from_reader(rpc_api_key_file)?;
@@ -203,7 +224,8 @@ impl Warehouse {
             oid_qty_by_address: HashMap::new(),
             address_by_oid: HashMap::new(),
             settlement_orders: Vec::new(),
-            shared_secret: shared_secret.clone(),
+            signer: signer.clone(),
+            encryption_key: encryption_key.clone(),
         })
     }
 
@@ -219,10 +241,10 @@ impl Warehouse {
         file.write_all(serialized_inventories.as_bytes())?;
 
         let mut file = std::fs::File::create(DEPOSIT_CONTRACT_STORAGE_PATH)?;
-        file.write_all(&self.deposit_contract.as_bytes())?;
+        file.write_all(&self.deposit_contract.to_string().as_bytes())?;
 
         let mut file = std::fs::File::create(CHECKPOINT_CONTRACT_STORAGE_PATH)?;
-        file.write_all(&self.checkpoint_contract.as_bytes())?;
+        file.write_all(&self.checkpoint_contract.to_string().as_bytes())?;
 
         Ok(())
     }
@@ -251,16 +273,20 @@ impl Warehouse {
 
         (qty, inventory)
     }
-    pub fn fill_bid(&mut self, oid: OrderId, price: Price) -> Qty {
-        let (qty, inventory) = self.remove_bid(oid, price);
+    pub fn fill_bid(&mut self, oid: OrderId, price: Price) -> Result<Qty, MwError> {
+        let (qty, inventory) = self.remove_bid(oid, price)?;
         inventory.eth_balance.add_assign(qty);
         inventory
             .usdc_balance
             .sub_assign(Qty(qty.0 * price.absolute()));
-        qty
+        Ok(qty)
     }
     //@Dev: this will not validate that the order is owned by a specific user
-    pub fn remove_bid(&mut self, oid: OrderId, price: Price) -> (Qty, &mut Inventory) {
+    pub fn remove_bid(
+        &mut self,
+        oid: OrderId,
+        price: Price,
+    ) -> Result<(Qty, &mut Inventory), MwError> {
         let address = self
             .address_by_oid
             .remove(&oid)
@@ -268,25 +294,25 @@ impl Warehouse {
         let qty = self
             .oid_qty_by_address
             .get_mut(&address)
-            .unwrap()
+            .ok_or(MwError::OrderNotFound { order_id: oid.0 })?
             .remove(&oid)
-            .expect("Order is not owned by this user");
+            .ok_or(MwError::OrderNotFound { order_id: oid.0 })?;
         let inventory = self.inventories.entry(address).or_default();
         let usdc_qty = Qty(qty.0 * price.absolute());
         inventory.usdc_liabilities.sub_assign(usdc_qty);
-        (qty, inventory)
+        Ok((qty, inventory))
     }
 
-    pub fn fill_ask(&mut self, oid: OrderId, price: Price) -> Qty {
-        let (qty, inventory) = self.remove_ask(oid);
+    pub fn fill_ask(&mut self, oid: OrderId, price: Price) -> Result<Qty, MwError> {
+        let (qty, inventory) = self.remove_ask(oid)?;
         inventory.eth_balance.sub_assign(qty);
         inventory
             .usdc_balance
             .add_assign(Qty(qty.0 * price.absolute()));
-        qty
+        Ok(qty)
     }
     //@Dev: this will not validate that the order is owned by a specific user
-    pub fn remove_ask(&mut self, oid: OrderId) -> (Qty, &mut Inventory) {
+    pub fn remove_ask(&mut self, oid: OrderId) -> Result<(Qty, &mut Inventory), MwError> {
         let address = self
             .address_by_oid
             .remove(&oid)
@@ -294,12 +320,12 @@ impl Warehouse {
         let qty = self
             .oid_qty_by_address
             .get_mut(&address)
-            .unwrap()
+            .ok_or(MwError::OrderNotFound { order_id: oid.0 })?
             .remove(&oid)
-            .expect("Order is not owned by this user");
+            .ok_or(MwError::OrderNotFound { order_id: oid.0 })?;
         let inventory = self.inventories.entry(address).or_default();
         inventory.eth_liabilities.sub_assign(qty);
-        (qty, inventory)
+        Ok((qty, inventory))
     }
 
     pub fn replace_order(
@@ -308,29 +334,34 @@ impl Warehouse {
         new_oid: OrderId,
         new_qty: Qty,
         price: Price,
-    ) -> (Qty, &Inventory) {
+    ) -> Result<(Qty, &Inventory), MwError> {
         // Get the address first
         let (order_qty, address) = if price.is_bid() {
-            let (order_qty, inventory) = self.remove_bid(oid, price);
+            let (order_qty, inventory) = self.remove_bid(oid, price)?;
             (order_qty, inventory.address)
         } else {
-            let (order_qty, inventory) = self.remove_ask(oid);
+            let (order_qty, inventory) = self.remove_ask(oid)?;
             (order_qty, inventory.address)
         };
 
         let (_, inventory) = self.add_order(new_oid, address, new_qty, price);
-        (order_qty, inventory)
+        Ok((order_qty, inventory))
     }
 
-    pub fn partially_fill_order(&mut self, oid: OrderId, qty: Qty, price: Price) {
+    pub fn partially_fill_order(
+        &mut self,
+        oid: OrderId,
+        qty: Qty,
+        price: Price,
+    ) -> Result<(), MwError> {
         let usdc_qty = Qty(qty.0 * price.absolute());
         let (mut remaining_qty, address) = if price.is_bid() {
-            let (order_qty, inventory) = self.remove_bid(oid, price);
+            let (order_qty, inventory) = self.remove_bid(oid, price)?;
             inventory.eth_balance.add_assign(qty);
             inventory.usdc_balance.sub_assign(usdc_qty);
             (order_qty, inventory.address)
         } else {
-            let (order_qty, inventory) = self.remove_ask(oid);
+            let (order_qty, inventory) = self.remove_ask(oid)?;
             inventory.eth_balance.sub_assign(qty);
             inventory.usdc_balance.add_assign(usdc_qty);
             (order_qty, inventory.address)
@@ -338,20 +369,28 @@ impl Warehouse {
         remaining_qty.sub_assign(qty);
 
         self.add_order(oid, address, remaining_qty, price);
+        Ok(())
     }
 
-    pub fn get_orders(&self, orderbook_manager: &OrderBookManager, user: Address) -> Vec<Order> {
-        let user_orders = self.oid_qty_by_address.get(&user).unwrap();
+    pub fn get_orders(
+        &self,
+        orderbook_manager: &OrderBookManager,
+        user: Address,
+    ) -> Result<Vec<Order>, MwError> {
+        let user_orders = self
+            .oid_qty_by_address
+            .get(&user)
+            .ok_or(MwError::NoOrdersFound)?;
         let level_pool = &orderbook_manager
             .books
             .get(0)
             .as_ref()
-            .unwrap()
+            .ok_or(MwError::InvalidBook)?
             .as_ref()
-            .unwrap()
+            .ok_or(MwError::InvalidBook)?
             .level_pool;
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-        user_orders
+        Ok(user_orders
             .iter()
             .map(|(oid, qty)| {
                 let order = orderbook_manager.oid_map.get(*oid).unwrap().clone();
@@ -363,7 +402,7 @@ impl Warehouse {
                     timestamp: timestamp,
                 }
             })
-            .collect()
+            .collect())
     }
 
     pub fn add_settlement_order(&mut self, order: CowSwapOrder) {
@@ -378,5 +417,23 @@ impl Warehouse {
             Some(inventory) => inventory.is_taker,
             None => false,
         }
+    }
+
+    pub fn get_encrypted_inventory(&self) -> Result<Vec<u8>, MwError> {
+        // Encrypt inventory state
+        let cipher = Aes256Gcm::new(&self.encryption_key);
+
+        Ok(self
+            .inventories
+            .iter()
+            .fold(Vec::new(), |mut encrypted_state, inventory| {
+                let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+                let mut buffer: HeaplessVec<u8, 128> =
+                    HeaplessVec::from_slice(&inventory.1.to_bytes()).unwrap();
+                //TODO: this needs error handling that covers the case of the buffer being too big
+                cipher.encrypt_in_place(&nonce, b"", &mut buffer).unwrap();
+                encrypted_state.extend_from_slice(&buffer);
+                encrypted_state
+            }))
     }
 }
