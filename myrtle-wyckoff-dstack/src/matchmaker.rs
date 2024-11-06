@@ -44,7 +44,7 @@ pub fn match_order(
     // flip the order type to match the price with the opposite types below
     let match_price = Price::from_u256(price256, !is_bid);
 
-    if let Some(book) = manager.books.get_mut(book_id.value() as usize).unwrap() {
+    if let Some(Some(book)) = manager.books.get_mut(book_id.value() as usize) {
         let levels = if is_bid {
             &mut book.asks
         } else {
@@ -72,51 +72,54 @@ pub fn match_order(
             let level = level_pool.get(*level_id).unwrap();
             let level_size = level.size();
             let level_price = level.price().absolute();
-            let order_iter = level_orders.get(level_id).unwrap().iter();
-
-            match level_size.cmp(&remaining_qty) {
-                std::cmp::Ordering::Less => {
-                    for order in order_iter {
-                        manager.execute_order(*order, remaining_qty);
-                        filled_orders.push((*order, level.price()));
+            if let Some(level_orders) = level_orders.get(level_id) {
+                let order_iter = level_orders.iter();
+                match level_size.cmp(&remaining_qty) {
+                    std::cmp::Ordering::Less => {
+                        for order in order_iter {
+                            manager.execute_order(*order, remaining_qty);
+                            filled_orders.push((*order, level.price()));
+                        }
+                        remaining_qty -= level_size;
+                        volume += Qty(level_size.value() * level_price);
                     }
-                    remaining_qty -= level_size;
-                    volume += Qty(level_size.value() * level_price);
-                }
-                std::cmp::Ordering::Greater => {
-                    volume += Qty(remaining_qty.value() * level_price);
-                    for order in order_iter {
-                        let old_order = manager.oid_map.get(*order).unwrap().clone();
-                        manager.execute_order(*order, remaining_qty);
-                        match old_order.qty().cmp(&remaining_qty) {
-                            std::cmp::Ordering::Less => {
-                                remaining_qty -= old_order.qty();
-                                filled_orders.push((*order, level.price()));
-                            }
-                            std::cmp::Ordering::Equal => {
-                                filled_orders.push((*order, level.price()));
-                                remaining_qty = Qty(U256::ZERO);
-                                break;
-                            }
-                            std::cmp::Ordering::Greater => {
-                                partially_filled_order_id = Some((*order, level.price()));
-                                remaining_qty = Qty(U256::ZERO);
-                                break;
+                    std::cmp::Ordering::Greater => {
+                        volume += Qty(remaining_qty.value() * level_price);
+                        for order in order_iter {
+                            let old_order = manager.oid_map.get(*order).unwrap().clone();
+                            manager.execute_order(*order, remaining_qty);
+                            match old_order.qty().cmp(&remaining_qty) {
+                                std::cmp::Ordering::Less => {
+                                    remaining_qty -= old_order.qty();
+                                    filled_orders.push((*order, level.price()));
+                                }
+                                std::cmp::Ordering::Equal => {
+                                    filled_orders.push((*order, level.price()));
+                                    remaining_qty = Qty(U256::ZERO);
+                                    break;
+                                }
+                                std::cmp::Ordering::Greater => {
+                                    partially_filled_order_id = Some((*order, level.price()));
+                                    remaining_qty = Qty(U256::ZERO);
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                std::cmp::Ordering::Equal => {
-                    for order in order_iter {
-                        manager.execute_order(*order, remaining_qty);
-                        filled_orders.push((*order, level.price()));
+                    std::cmp::Ordering::Equal => {
+                        for order in order_iter {
+                            manager.execute_order(*order, remaining_qty);
+                            filled_orders.push((*order, level.price()));
+                        }
+                        remaining_qty = Qty(U256::ZERO);
+                        volume += Qty(level_size.value() * level_price);
+                        break;
                     }
-                    remaining_qty = Qty(U256::ZERO);
-                    volume += Qty(level_size.value() * level_price);
-                    break;
                 }
-            }
+            };
         }
+    } else {
+        return (Qty(U256::ZERO), Qty(U256::ZERO), None, Vec::new(), None);
     }
 
     if remaining_qty.gt(&Qty(U256::ZERO)) {

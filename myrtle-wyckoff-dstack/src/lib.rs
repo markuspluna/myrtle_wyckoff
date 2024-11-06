@@ -2,6 +2,7 @@ pub mod artifacts;
 pub mod constants;
 pub mod cowswap;
 pub mod domains;
+pub mod errors;
 pub mod gulper;
 pub mod jtrain;
 pub mod matchmaker;

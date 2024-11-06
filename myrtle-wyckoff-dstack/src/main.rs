@@ -1,12 +1,9 @@
 use std::{env, str::FromStr, sync::Arc};
 
-use alloy::{
-    primitives::Address,
-    signers::{local::PrivateKeySigner, Signature},
-    transports::http::reqwest::Url,
-};
+use alloy::{primitives::Address, signers::Signature, transports::http::reqwest::Url};
 use myrtle_wyckoff_dstack::{
     artifacts::IDepositRegistry,
+    errors::MwError,
     gulper,
     jtrain::Jtrain,
     orderhere::{self, CancelOrder, Order},
@@ -49,8 +46,7 @@ fn health() -> &'static str {
 #[get("/public-key")]
 async fn get_public_key(state: &State<SharedState>) -> String {
     let jtrain = &state.read().await.jtrain;
-    let signer = PrivateKeySigner::from_slice(jtrain.warehouse.shared_secret.as_bytes()).unwrap();
-    signer.address().to_string()
+    jtrain.warehouse.signer.address().to_string()
 }
 
 #[put("/contract-addresses/<deposit_registry_address>/<checkpointer_address>")]
@@ -61,8 +57,8 @@ async fn set_contract_addresses(
 ) -> String {
     let mut guard = state.write().await;
 
-    guard.jtrain.warehouse.deposit_contract = deposit_registry_address;
-    guard.jtrain.warehouse.checkpoint_contract = checkpointer_address;
+    guard.jtrain.warehouse.deposit_contract = Address::from_str(&deposit_registry_address).unwrap();
+    guard.jtrain.warehouse.checkpoint_contract = Address::from_str(&checkpointer_address).unwrap();
     guard.jtrain.warehouse.store();
     "Thanks!".to_string()
 }
@@ -73,7 +69,7 @@ async fn new_settlement_order(
     user: String,
     taker_signature: String,
     order: Json<IDepositRegistry::Order>,
-) -> String {
+) -> Result<String, MwError> {
     let jtrain = &state.read().await.jtrain;
     let user = Address::from_raw_public_key(user.as_bytes());
     let taker_signature = Signature::from_str(&taker_signature).unwrap();
@@ -84,10 +80,10 @@ async fn new_settlement_order(
         order.0,
         taker_signature,
     )
-    .await;
+    .await?;
     let mut guard = state.write().await;
     guard.jtrain.warehouse.add_settlement_order(new_order);
-    "Thanks!".to_string()
+    Ok("Added settlement order. Thanks!".to_string())
 }
 
 #[get("/get-settlement-order-length")]
@@ -102,15 +98,17 @@ async fn get_orders(
     user: String,
     signature: String,
     request: Json<UserRequest>,
-) -> String {
+) -> Result<String, MwError> {
     let jtrain = &state.read().await.jtrain;
     let user = Address::from_raw_public_key(user.as_bytes());
     let signature = Signature::from_str(&signature).unwrap();
-    request.validate_signature(signature, user);
-    request.validate_timestamp();
-    request.validate_request_type("orders");
-    let orders = jtrain.warehouse.get_orders(&jtrain.orderbook_manager, user);
-    serde_json::to_string(&orders).unwrap()
+    request.validate_signature(signature, user)?;
+    request.validate_timestamp()?;
+    request.validate_request_type("orders")?;
+    let orders = jtrain
+        .warehouse
+        .get_orders(&jtrain.orderbook_manager, user)?;
+    Ok(serde_json::to_string(&orders).unwrap())
 }
 
 #[post("/send-order/<user>/<signature>", data = "<order>")]
@@ -119,7 +117,7 @@ async fn send_order(
     user: String,
     signature: String,
     order: Json<Order>,
-) -> String {
+) -> Result<String, MwError> {
     let mut guard = state.write().await;
     let user = Address::from_raw_public_key(user.as_bytes());
     let signature = Signature::from_str(&signature).unwrap();
@@ -130,9 +128,9 @@ async fn send_order(
         user,
         order.0,
         signature,
-    );
+    )?;
 
-    format!("{:?}", result)
+    Ok(format!("{:?}", result))
 }
 
 #[delete("/cancel-order/<user>/<signature>", data = "<cancel>")]
@@ -141,7 +139,7 @@ async fn cancel_order(
     user: String,
     signature: String,
     cancel: Json<CancelOrder>,
-) -> String {
+) -> Result<String, MwError> {
     let mut guard = state.write().await;
     let user = Address::from_raw_public_key(user.as_bytes());
     let signature = Signature::from_str(&signature).unwrap();
@@ -152,8 +150,8 @@ async fn cancel_order(
         signature,
         &mut jtrain.warehouse,
         &mut jtrain.orderbook_manager,
-    );
-    "Thanks!".to_string()
+    )?;
+    Ok("Thanks!".to_string())
 }
 
 #[put("/modify-order/<user>/<signature>/<order_id>", data = "<order>")]
@@ -163,7 +161,7 @@ async fn modify_order(
     signature: String,
     order_id: String,
     order: Json<Order>,
-) -> String {
+) -> Result<String, MwError> {
     let mut guard = state.write().await;
     let user = Address::from_raw_public_key(user.as_bytes());
     let signature = Signature::from_str(&signature).unwrap();
@@ -176,8 +174,8 @@ async fn modify_order(
         signature,
         &mut jtrain.warehouse,
         &mut jtrain.orderbook_manager,
-    );
-    format!("{:?}", new_oid)
+    )?;
+    Ok(format!("{:?}", new_oid))
 }
 
 #[get("/get-inventory/<user>/<signature>", data = "<request>")]
@@ -186,31 +184,42 @@ async fn get_inventory(
     user: String,
     signature: String,
     request: Json<UserRequest>,
-) -> String {
+) -> Result<String, MwError> {
     let jtrain = &state.read().await.jtrain;
     let user = Address::from_raw_public_key(user.as_bytes());
     let signature = Signature::from_str(&signature).unwrap();
-    request.validate_signature(signature, user);
-    request.validate_timestamp();
-    request.validate_request_type("inventory");
-    jtrain.warehouse.inventories.get(&user).unwrap().to_json()
+    request.validate_signature(signature, user)?;
+    request.validate_timestamp()?;
+    request.validate_request_type("inventory")?;
+    let inventory = jtrain
+        .warehouse
+        .inventories
+        .get(&user)
+        .cloned()
+        .unwrap_or_default();
+    Ok(inventory.to_json())
 }
 
 #[put("/gulp-deposits/<user>")]
-async fn gulp_deposits(state: &State<SharedState>, user: String) -> String {
+async fn gulp_deposits(state: &State<SharedState>, user: String) -> Result<String, MwError> {
     let mut guard = state.write().await;
     let jtrain = &mut guard.jtrain;
     let user = Address::from_raw_public_key(user.as_bytes());
-    gulper::gulp_deposits(&mut jtrain.warehouse, &jtrain.provider, user);
-    "Thanks!".to_string()
+    let new_deposits = gulper::gulp_deposits(&mut jtrain.warehouse, &jtrain.provider, user)
+        .map_err(|e| MwError::GulpError(e.to_string()))?;
+    Ok(format!("{:?}", new_deposits))
 }
 
 ///@dev: run ever 5 seconds
 #[post("/take_snapshot")]
-async fn take_snapshot(state: &State<SharedState>) -> String {
+async fn take_snapshot(state: &State<SharedState>) -> Result<String, MwError> {
     let jtrain = &state.read().await.jtrain;
-    snapshotter::snapshot(&jtrain.warehouse, &jtrain.provider).await;
-    "Thanks!".to_string()
+    let tx_receipt = snapshotter::snapshot(&jtrain.warehouse, &jtrain.provider)
+        .await
+        .map_err(|e| MwError::SnapshotError(e.to_string()))?;
+
+    Ok(serde_json::to_string(&tx_receipt)
+        .unwrap_or_else(|_| "Failed to serialize transaction receipt".to_string()))
 }
 
 #[launch]

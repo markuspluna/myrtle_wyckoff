@@ -10,6 +10,7 @@ use chrono::Utc;
 use crate::{
     artifacts::IDepositRegistry::Order,
     constants::{USDC_ADDRESS, WETH_ADDRESS},
+    errors::MwError,
 };
 
 #[derive(Debug)]
@@ -113,9 +114,9 @@ pub struct CowSwapOrder {
 }
 impl CowSwapOrder {
     pub async fn from_cowswap_order_digest(
-        secret_key: &String,
+        signer: &PrivateKeySigner,
         cowswap_order_digest: CowSwapOrderDigest,
-    ) -> CowSwapOrder {
+    ) -> Result<CowSwapOrder, MwError> {
         // this should likely be declared in a constants file but I'll leave it here since it needs to be computed on-the-fly for a multi-chain setup
         let cowswap_domain = eip712_domain! {
             name: "Gnosis Protocol",
@@ -123,11 +124,13 @@ impl CowSwapOrder {
             chain_id: 1,
             verifying_contract: Address::from_hex("0x9008D19f58AAbD9eD0D60971565AA8510560ab41".encode_hex()).unwrap(),
         };
-        let signer = PrivateKeySigner::from_slice(secret_key.as_bytes()).unwrap();
-        let hash = cowswap_order_digest.eip712_signing_hash(&cowswap_domain);
 
-        let signature: Signature = signer.sign_hash(&hash).await.unwrap();
-        CowSwapOrder {
+        let hash = cowswap_order_digest.eip712_signing_hash(&cowswap_domain);
+        let signature: Signature = signer
+            .sign_hash(&hash)
+            .await
+            .map_err(|_| MwError::SigningError)?;
+        Ok(CowSwapOrder {
             sell_token: cowswap_order_digest.sell_token,
             buy_token: cowswap_order_digest.buy_token,
             receiver: cowswap_order_digest.receiver,
@@ -144,6 +147,6 @@ impl CowSwapOrder {
             from: cowswap_order_digest.from,
             app_data: cowswap_order_digest.app_data,
             app_data_hash: cowswap_order_digest.app_data_hash,
-        }
+        })
     }
 }

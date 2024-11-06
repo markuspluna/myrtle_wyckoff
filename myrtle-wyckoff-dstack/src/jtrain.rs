@@ -50,8 +50,7 @@ impl Jtrain {
         let orderbook_manager = OrderBookManager::new();
         let client = ClientBuilder::default().http(http); //TODO: revisit this when testing
 
-        let signer = PrivateKeySigner::from_slice(warehouse.shared_secret.as_bytes()).unwrap();
-        let wallet = EthereumWallet::from(signer);
+        let wallet = EthereumWallet::from(warehouse.signer.clone());
         let provider: Arc<
             alloy::providers::fillers::FillProvider<
                 alloy::providers::fillers::JoinFill<
