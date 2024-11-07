@@ -7,8 +7,18 @@ contract Checkpointer {
     address public admin; // Should be set to dstack app shared secret address
     uint256 public inventory_checkpoint_nonce;
     event SettlementOrders(string[] settlement_orders);
-    /// @dev `keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")`.
-    bytes32 internal _DOMAIN_TYPEHASH;
+    /// @dev keccak256(
+    ///     abi.encode(
+    ///     keccak256(
+    ///         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    ///     ),
+    ///     keccak256(bytes(domain.name)),
+    ///     keccak256(bytes(domain.version)),
+    ///     domain.chainId,
+    ///     domain.verifyingContract
+    ///     )
+    /// )
+    bytes32 internal domainSeparator;
 
     // Vec of AES encoded inventories structured as (user: Address, eth_balance: i128, usdc_balance: i128, deposit nonce: u32, is_taker: u8)
     // In prod this should store multiple checkpoints and overwrite oldest with newest
@@ -17,14 +27,14 @@ contract Checkpointer {
     constructor() {
         admin = msg.sender;
     }
-    function set_domain_typehash(bytes32 domain_typehash) external {
+    function set_domain_separator(bytes32 domain_separator) external {
         if (msg.sender != admin) {
-            revert("Only the admin can set the domain typehash");
+            revert("Only the admin can set the domain separator");
         }
-        if (_DOMAIN_TYPEHASH != 0) {
-            revert("Domain typehash already set");
+        if (domainSeparator != 0) {
+            revert("Domain separator already set");
         }
-        _DOMAIN_TYPEHASH = domain_typehash;
+        domainSeparator = domain_separator;
     }
 
     function set_admin(address new_admin) external {
@@ -54,7 +64,7 @@ contract Checkpointer {
                 EfficientHashLib.hash(
                     abi.encodePacked(
                         "\x19\x01",
-                        _DOMAIN_TYPEHASH,
+                        domainSeparator,
                         EfficientHashLib.hash(abi.encode(_checkpoint))
                     )
                 ),
