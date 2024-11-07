@@ -8,7 +8,6 @@ use alloy::{
     network::{Ethereum, EthereumWallet},
     providers::{ProviderBuilder, RootProvider},
     rpc::client::ClientBuilder,
-    signers::local::PrivateKeySigner,
     transports::http::{reqwest::Url, Client, Http},
 };
 use optimized_lob::orderbook_manager::OrderBookManager;

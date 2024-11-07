@@ -9,17 +9,26 @@ contract DepositRegistry {
     address public admin; // Should be set to dstack container shared secret address
     uint256 public settlement_nonce;
     mapping(address => uint256[2][]) public deposit_registry; // [eth_amount, usdc_amount]
-    ERC20 public constant WETH =
+    ERC20 internal constant WETH =
         ERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // Mainnet WETH address
-    address public constant HookTrampoline =
-        0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
-    ERC20 public constant USDC =
+    address internal constant HookTrampoline =
+        0x01DcB88678aedD0C4cC9552B20F4718550250574; // Mainnet HookTrampoline address
+    ERC20 internal constant USDC =
         ERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // Mainnet USDC address
-    address public constant GPv2Settlement =
-        0x0000000000000000000000000000000000000000; //TODO: Find correct contract address
-    /// @dev `keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")`.
-    bytes32 internal constant _DOMAIN_TYPEHASH =
-        0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f; //TODO: update with correct domain typehash
+    address internal constant GPv2Settlement =
+        0x9008D19f58AAbD9eD0D60971565AA8510560ab41; // Mainnet GPv2Settlement address
+    /// @dev keccak256(
+    ///     abi.encode(
+    ///     keccak256(
+    ///         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    ///     ),
+    ///     keccak256(bytes(domain.name)),
+    ///     keccak256(bytes(domain.version)),
+    ///     domain.chainId,
+    ///     domain.verifyingContract
+    ///     )
+    /// )
+    bytes32 internal domainSeparator;
     constructor() {
         admin = msg.sender;
     }
@@ -27,6 +36,16 @@ contract DepositRegistry {
     function set_admin(address new_admin) external {
         require(msg.sender == admin, "Only the admin can set a new admin");
         admin = new_admin;
+    }
+
+    function set_domain_separator(bytes32 domain_separator) external {
+        if (msg.sender != admin) {
+            revert("Only the admin can set the domain separator");
+        }
+        if (domainSeparator != 0) {
+            revert("Domain separator already set");
+        }
+        domainSeparator = domain_separator;
     }
 
     function deposit(
@@ -43,17 +62,18 @@ contract DepositRegistry {
         }
         deposit_registry[user].push([eth_amount, usdc_amount]);
     }
-
+    // nonce is the index of the next time the user will deposit
     function get_deposits(
         uint32 _nonce,
         address user
     ) external view returns (uint256[2][] memory) {
         uint256[2][] memory deposits = deposit_registry[user];
+        require(_nonce < deposits.length, "Nonce is out of bounds");
         uint256[2][] memory amounts = new uint256[2][](
             deposits.length - _nonce
         );
         // iterates over every deposit after the nonce - getting every new deposit
-        for (uint32 i = _nonce + 1; i < deposits.length; i++) {
+        for (uint32 i = _nonce; i < deposits.length; i++) {
             amounts[i - _nonce] = deposits[i];
         }
         return amounts;
@@ -90,7 +110,7 @@ contract DepositRegistry {
                 EfficientHashLib.hash(
                     abi.encodePacked(
                         "\x19\x01",
-                        _DOMAIN_TYPEHASH,
+                        domainSeparator,
                         EfficientHashLib.hash(abi.encode(settlement_order))
                     )
                 ),
@@ -118,7 +138,7 @@ contract DepositRegistry {
         bool isValid = SignatureCheckerLib.isValidSignatureNow(
             admin,
             EfficientHashLib.hash(
-                abi.encodePacked("\x19\x01", _DOMAIN_TYPEHASH, _hash)
+                abi.encodePacked("\x19\x01", domainSeparator, _hash)
             ),
             _signature
         );

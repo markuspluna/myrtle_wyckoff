@@ -144,7 +144,7 @@ pub fn new_order(
     if let Some((order_id, price)) = partially_filled_order {
         // update inventory of partially filled user
         let partially_filled_qty = Qty(qty_executed.0 - fully_filled_qty.0);
-        warehouse.partially_fill_order(order_id, partially_filled_qty, price);
+        warehouse.partially_fill_order(order_id, partially_filled_qty, price)?;
     }
 
     info!(
