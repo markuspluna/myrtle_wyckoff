@@ -71,6 +71,8 @@ Tdeps dstack version doesn't actually support quote verification. We need to add
 
 The leader is a semi-trusted party since it posts state snapshots and approves settlement orders and withdrawals. Since this is TDX it's probably fine, but we probably want a security council to manage the leader. Maybe just security council based view changes as well.
 
+Can we add a secure (encumbered) node specific key to the dstack network? i want it to be stored on chain so we can verify that the leader key is a secure key associated with a verified dstack node.
+
 ##### Required Work
 
 -[] Confirm wow do you even distinguish btw various dstack containers? With the public key associated with them right?
